@@ -1,0 +1,694 @@
+# WhatsApp Sticker Studio v1 — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Ship a standalone Android app that makes high-quality WhatsApp stickers (image/GIF/video/Giphy → compliant 512×512 WebP), auto-tags and stores them in a searchable local library, and exports/shares them into WhatsApp via the official sticker API and share sheet.
+
+**Architecture:** Flutter app with five isolated modules behind interfaces — Sources, Encoder, Library store, Tagger, Search, Exporter/Sharing. Deterministic core logic (models, validation, encoding budget, search ranking) is pure Dart and unit-tested. Platform glue (ML Kit tagging, Giphy API, WhatsApp `ContentProvider`) lives behind the same interfaces with a small Kotlin layer.
+
+**Tech Stack:** Flutter (Dart) · Kotlin (native glue) · `drift` (SQLite + FTS5) · `ffmpeg_kit_flutter` + `libwebp` (encoding) · Google ML Kit on-device (image labeling + OCR, FREE) · on-device TFLite embeddings (FREE) · Giphy HTTP API (free tier).
+
+## Global Constraints
+
+Copy these verbatim into `lib/core/whatsapp_spec.dart` (Task 2). Every task implicitly depends on them.
+
+- Sticker format: **WebP only**, dimensions **exactly 512×512 px**.
+- Size ceilings: **static ≤ 100 KB (102400 bytes)**, **animated ≤ 500 KB (512000 bytes)**.
+- Tray icon: **96×96 px, ≤ 50 KB (51200 bytes)**, WebP.
+- Pack size: **3–30 stickers per pack**; app exposes **1–10 packs**.
+- Animation: **total duration ≤ 10 s (10000 ms)**, **minimum 8 ms per frame**.
+- A pack cannot be added silently — user confirms each "Add to WhatsApp".
+- **Vision/tagging must be FREE** — on-device ML Kit default; only free-tier hosted adapters allowed. No paid model.
+- **Git:** commit frequently; **one feature branch per task**; push to GitHub after each task; **never add "Co-authored-by" trailers**; report a task complete **only after its tests pass**.
+
+---
+
+## File Structure
+
+```
+whatsapp-sticker-project/
+├── CLAUDE.md                      # rules + spec constraints (Task 1)
+├── docs/                          # spec + this plan moved here (Task 1 handoff)
+├── pubspec.yaml
+├── analysis_options.yaml
+├── lib/
+│   ├── main.dart
+│   ├── core/
+│   │   ├── whatsapp_spec.dart     # constants (Task 2)
+│   │   └── media.dart             # MediaHandle, MediaKind, StickerKind, FitMode (Task 2)
+│   ├── models/
+│   │   ├── sticker_record.dart    # (Task 2)
+│   │   └── pack_record.dart       # (Task 2)
+│   ├── library/
+│   │   ├── database.dart          # drift schema (Task 3)
+│   │   └── library_store.dart     # LibraryStore interface + impl (Task 3)
+│   ├── export/
+│   │   ├── sticker_validator.dart # ValidationResult, validatePack (Task 4)
+│   │   └── exporter.dart          # Exporter interface + platform impl (Task 11)
+│   ├── encoder/
+│   │   ├── encoder.dart           # Encoder interface, EncodeParams, EncodedSticker (Task 5)
+│   │   ├── static_encoder.dart    # (Task 5)
+│   │   └── animated_encoder.dart  # (Task 6)
+│   ├── sources/
+│   │   ├── source.dart            # Source interface (Task 7)
+│   │   ├── gallery_source.dart    # (Task 7)
+│   │   ├── camera_source.dart     # (Task 7)
+│   │   ├── share_in_source.dart   # (Task 7)
+│   │   └── giphy_source.dart      # (Task 8)
+│   ├── tagger/
+│   │   ├── tagging_service.dart   # TaggingService interface, StickerTags (Task 9)
+│   │   └── mlkit_tagger.dart      # (Task 9)
+│   ├── search/
+│   │   └── search_service.dart    # SearchService, SearchHit, ranking (Task 10)
+│   ├── sharing/
+│   │   └── sharing_service.dart   # single + pack share (Task 12)
+│   └── ui/
+│       ├── maker_screen.dart      # (Task 13)
+│       └── library_screen.dart    # (Task 14)
+├── android/app/src/main/kotlin/.../StickerContentProvider.kt  # (Task 11)
+└── test/                          # mirrors lib/ ; integration_test/ for e2e (Task 15)
+```
+
+---
+
+### Task 1: Repo bootstrap, Flutter scaffold, CI, CLAUDE.md
+
+**Branch:** work directly on `main` for the initial scaffold (bootstrap is not a feature).
+
+**Files:**
+- Create: `/home/arjun/whatsapp-sticker-project/` (Flutter project root)
+- Create: `CLAUDE.md`, `.gitignore`, `analysis_options.yaml`
+- Create: `test/smoke_test.dart`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: a buildable Flutter app + green test run + a GitHub remote.
+
+- [ ] **Step 1: Create the Flutter project**
+
+```bash
+cd /home/arjun
+flutter create --org com.arjun --project-name whatsapp_sticker_studio --platforms=android whatsapp-sticker-project
+cd /home/arjun/whatsapp-sticker-project
+```
+
+- [ ] **Step 2: Write `CLAUDE.md`** (repo-root, so rules load wherever the repo is worked on)
+
+```markdown
+# WhatsApp Sticker Studio — Working Rules
+
+## Implementation rules (always)
+- Commit frequently. One feature branch per task (`feat/<task>`). Push to GitHub after each task.
+- NEVER add "Co-authored-by" trailers to commit messages.
+- Full testing before "done": run the test suite; report a task complete only after it passes.
+
+## Product constraints (WhatsApp sticker spec — do not violate)
+- WebP only, exactly 512×512. Static ≤ 100 KB, animated ≤ 500 KB. Tray icon 96×96 ≤ 50 KB.
+- 3–30 stickers/pack; 1–10 packs. Animation ≤ 10 s, ≥ 8 ms/frame.
+- Vision/tagging must be FREE (on-device ML Kit; free-tier hosted only).
+- Standalone app: integrate ONLY via official sticker ContentProvider + intent and the OS share sheet. No in-WhatsApp injection.
+
+See docs/ for the full design spec and implementation plan.
+```
+
+- [ ] **Step 3: Write a smoke test** — `test/smoke_test.dart`
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('smoke: arithmetic sanity', () {
+    expect(1 + 1, 2);
+  });
+}
+```
+
+- [ ] **Step 4: Run the smoke test**
+
+Run: `flutter test test/smoke_test.dart`
+Expected: PASS (1 test).
+
+- [ ] **Step 5: Init git, first commit**
+
+```bash
+cd /home/arjun/whatsapp-sticker-project
+git init
+git add -A
+git commit -m "chore: bootstrap Flutter project, CLAUDE.md, smoke test"
+```
+
+- [ ] **Step 6: Create GitHub repo and push**
+
+```bash
+gh repo create whatsapp-sticker-studio --private --source=. --remote=origin --push
+```
+Expected: repo created; `main` pushed. Verify with `gh repo view --web` or `git remote -v`.
+
+---
+
+### Task 2: Core domain models & spec constants
+
+**Branch:** `feat/domain-models`
+
+**Files:**
+- Create: `lib/core/whatsapp_spec.dart`, `lib/core/media.dart`
+- Create: `lib/models/sticker_record.dart`, `lib/models/pack_record.dart`
+- Test: `test/models/sticker_record_test.dart`, `test/core/whatsapp_spec_test.dart`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces:
+  - `WhatsAppSpec` constants (see code).
+  - `enum MediaKind { image, gif, video }`
+  - `enum StickerKind { staticImage, animated }`
+  - `enum FitMode { pad, smartCrop, contain }`
+  - `class MediaHandle { final Uint8List bytes; final MediaKind kind; final String? mimeType; }`
+  - `class StickerRecord { String id; String filePath; String thumbnailPath; StickerKind kind; String? packId; List<String> autoTags; String? manualName; List<String> manualTags; String? notes; String source; DateTime createdAt; int usageCount; int sizeBytes; String taggingStatus; String searchBlob(); }`
+  - `class PackRecord { String id; String name; String trayIconPath; bool isAnimated; List<String> stickerIds; DateTime createdAt; }`
+
+- [ ] **Step 1: Write the failing test** — `test/core/whatsapp_spec_test.dart`
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:whatsapp_sticker_studio/core/whatsapp_spec.dart';
+
+void main() {
+  test('spec constants match WhatsApp ceilings', () {
+    expect(WhatsAppSpec.dimension, 512);
+    expect(WhatsAppSpec.maxStaticBytes, 102400);
+    expect(WhatsAppSpec.maxAnimatedBytes, 512000);
+    expect(WhatsAppSpec.maxTrayBytes, 51200);
+    expect(WhatsAppSpec.trayDimension, 96);
+    expect(WhatsAppSpec.minStickersPerPack, 3);
+    expect(WhatsAppSpec.maxStickersPerPack, 30);
+    expect(WhatsAppSpec.maxAnimationMs, 10000);
+    expect(WhatsAppSpec.minFrameMs, 8);
+  });
+}
+```
+
+- [ ] **Step 2: Run it to see it fail**
+
+Run: `flutter test test/core/whatsapp_spec_test.dart`
+Expected: FAIL — `whatsapp_spec.dart` not found.
+
+- [ ] **Step 3: Implement constants** — `lib/core/whatsapp_spec.dart`
+
+```dart
+class WhatsAppSpec {
+  static const int dimension = 512;
+  static const int trayDimension = 96;
+  static const int maxStaticBytes = 102400;   // 100 KB
+  static const int maxAnimatedBytes = 512000;  // 500 KB
+  static const int maxTrayBytes = 51200;       // 50 KB
+  static const int minStickersPerPack = 3;
+  static const int maxStickersPerPack = 30;
+  static const int minPacks = 1;
+  static const int maxPacks = 10;
+  static const int maxAnimationMs = 10000;
+  static const int minFrameMs = 8;
+}
+```
+
+- [ ] **Step 4: Implement `media.dart`** — enums + `MediaHandle` (see Interfaces block; `import 'dart:typed_data';`).
+
+- [ ] **Step 5: Write failing test for `StickerRecord.searchBlob()`** — `test/models/sticker_record_test.dart`
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
+import 'package:whatsapp_sticker_studio/core/media.dart';
+
+void main() {
+  test('searchBlob concatenates all searchable text', () {
+    final r = StickerRecord(
+      id: '1', filePath: 'a.webp', thumbnailPath: 't.webp',
+      kind: StickerKind.animated, packId: null,
+      autoTags: ['dog', 'high five'], manualName: 'Arjun high five',
+      manualTags: ['friends'], notes: 'inside joke',
+      source: 'maker', createdAt: DateTime(2026), usageCount: 0,
+      sizeBytes: 400000, taggingStatus: 'done',
+    );
+    final blob = r.searchBlob().toLowerCase();
+    for (final term in ['dog', 'high five', 'arjun', 'friends', 'inside joke']) {
+      expect(blob.contains(term), isTrue, reason: 'missing "$term"');
+    }
+  });
+}
+```
+
+- [ ] **Step 6: Implement `StickerRecord` and `PackRecord`** — `searchBlob()` returns `[autoTags, manualName, manualTags, notes].join(' ')` with nulls skipped.
+
+- [ ] **Step 7: Run model tests**
+
+Run: `flutter test test/models test/core`
+Expected: PASS.
+
+- [ ] **Step 8: Commit & push**
+
+```bash
+git checkout -b feat/domain-models
+git add -A && git commit -m "feat: core spec constants and domain models"
+git push -u origin feat/domain-models
+```
+
+---
+
+### Task 3: Library store (drift/SQLite + CRUD + usage)
+
+**Branch:** `feat/library-store`
+
+**Files:**
+- Create: `lib/library/database.dart` (drift tables), `lib/library/library_store.dart`
+- Modify: `pubspec.yaml` (add `drift`, `sqlite3_flutter_libs`, `path_provider`, `path`; dev `drift_dev`, `build_runner`)
+- Test: `test/library/library_store_test.dart` (in-memory drift DB)
+
+**Interfaces:**
+- Consumes: `StickerRecord`, `PackRecord` (Task 2).
+- Produces:
+```dart
+abstract class LibraryStore {
+  Future<void> saveSticker(StickerRecord r);
+  Future<StickerRecord?> getSticker(String id);
+  Future<List<StickerRecord>> allStickers();
+  Future<void> updateMetadata(String id, {String? manualName, List<String>? manualTags, String? notes});
+  Future<void> setAutoTags(String id, List<String> tags);      // sets taggingStatus='done'
+  Future<void> incrementUsage(String id);
+  Future<void> savePack(PackRecord p);
+  Future<PackRecord?> getPack(String id);
+  Future<List<PackRecord>> allPacks();
+}
+```
+
+- [ ] **Step 1: Add dependencies** — edit `pubspec.yaml`, then `flutter pub get`.
+- [ ] **Step 2: Write the failing test** — round-trip a sticker, update metadata, increment usage:
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:drift/native.dart';
+import 'package:whatsapp_sticker_studio/library/database.dart';
+import 'package:whatsapp_sticker_studio/library/library_store.dart';
+// ... build a StickerRecord (as in Task 2 test)
+
+void main() {
+  late LibraryStore store;
+  setUp(() => store = DriftLibraryStore(AppDatabase(NativeDatabase.memory())));
+
+  test('save then get returns the sticker', () async {
+    await store.saveSticker(sample);
+    final got = await store.getSticker('1');
+    expect(got!.manualName, sample.manualName);
+  });
+
+  test('incrementUsage bumps count', () async {
+    await store.saveSticker(sample);
+    await store.incrementUsage('1');
+    expect((await store.getSticker('1'))!.usageCount, 1);
+  });
+}
+```
+
+- [ ] **Step 3: Run it to see it fail** — `flutter test test/library` → FAIL (no `database.dart`).
+- [ ] **Step 4: Define drift tables** in `database.dart` (Stickers, Packs; list columns stored as JSON text via a `TypeConverter`), run `dart run build_runner build --delete-conflicting-outputs`.
+- [ ] **Step 5: Implement `DriftLibraryStore`** mapping rows ↔ records.
+- [ ] **Step 6: Run tests** — `flutter test test/library` → PASS.
+- [ ] **Step 7: Commit & push** on `feat/library-store`.
+
+---
+
+### Task 4: Sticker/pack validator (pure ceiling enforcement)
+
+**Branch:** `feat/validator`
+
+**Files:**
+- Create: `lib/export/sticker_validator.dart`
+- Test: `test/export/sticker_validator_test.dart`
+
+**Interfaces:**
+- Consumes: `WhatsAppSpec`, `PackRecord`, `StickerRecord`.
+- Produces:
+```dart
+class ValidationResult { final bool ok; final List<String> problems;
+  const ValidationResult(this.ok, this.problems); }
+class StickerValidator {
+  ValidationResult validatePack(PackRecord pack, List<StickerRecord> stickers);
+  ValidationResult validateSticker(StickerRecord s); // dimension/size/format per kind
+}
+```
+
+- [ ] **Step 1: Write failing tests** covering each rule:
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:whatsapp_sticker_studio/export/sticker_validator.dart';
+// helpers: stickerOf(sizeBytes, kind), packOf(count)
+
+void main() {
+  final v = StickerValidator();
+  test('pack with <3 stickers fails', () {
+    final r = v.validatePack(packOf(2), stickersOf(2));
+    expect(r.ok, isFalse);
+    expect(r.problems.any((p) => p.contains('at least 3')), isTrue);
+  });
+  test('animated sticker >500KB fails', () {
+    final r = v.validateSticker(stickerOf(600000, StickerKind.animated));
+    expect(r.ok, isFalse);
+  });
+  test('valid pack passes', () {
+    final r = v.validatePack(packOf(5), stickersOf(5, bytes: 400000));
+    expect(r.ok, isTrue);
+    expect(r.problems, isEmpty);
+  });
+}
+```
+
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** using `WhatsAppSpec` (count 3–30; per-sticker size by kind; collect all problems, don't short-circuit).
+- [ ] **Step 4: Run → PASS.**
+- [ ] **Step 5: Commit & push** on `feat/validator`.
+
+---
+
+### Task 5: Encoder — static images
+
+**Branch:** `feat/encoder-static`
+
+**Files:**
+- Create: `lib/encoder/encoder.dart` (interface + params), `lib/encoder/static_encoder.dart`
+- Modify: `pubspec.yaml` (add `image` package for decode/resize)
+- Test: `test/encoder/static_encoder_test.dart` (uses a real bundled test image asset)
+
+**Interfaces:**
+- Consumes: `MediaHandle`, `FitMode`, `WhatsAppSpec`, `StickerKind`.
+- Produces:
+```dart
+class EncodeParams { final FitMode fitMode; final Duration? trim; const EncodeParams({this.fitMode = FitMode.pad, this.trim}); }
+class QualityReport { final int fps; final int frames; final int quality; final int sizeBytes; }
+class EncodedSticker { final Uint8List webpBytes; final StickerKind kind; final int width; final int height; final int sizeBytes; final QualityReport report; }
+abstract class Encoder { Future<EncodedSticker> encode(MediaHandle input, EncodeParams params); }
+```
+
+- [ ] **Step 1: Add a 1024×768 test JPEG** to `test/fixtures/landscape.jpg`.
+- [ ] **Step 2: Write failing test** — output is exactly 512×512 WebP and ≤ 100 KB:
+
+```dart
+test('static encode → 512x512 webp under 100KB', () async {
+  final bytes = await File('test/fixtures/landscape.jpg').readAsBytes();
+  final out = await StaticEncoder().encode(
+    MediaHandle(bytes: bytes, kind: MediaKind.image),
+    const EncodeParams(fitMode: FitMode.pad));
+  expect(out.width, 512);
+  expect(out.height, 512);
+  expect(out.sizeBytes, lessThanOrEqualTo(102400));
+  expect(out.kind, StickerKind.staticImage);
+});
+```
+
+- [ ] **Step 3: Run → FAIL.**
+- [ ] **Step 4: Implement `StaticEncoder`.** Decode with `image`; apply `FitMode` (pad = letterbox onto transparent 512² canvas; contain = scale-to-fit; smartCrop = center-crop to square then resize — subject-aware detection deferred to v1.1). Encode WebP; if > 100 KB, step quality down (e.g., 100→90→…→50) until under ceiling; populate `QualityReport`.
+- [ ] **Step 5: Run → PASS.** Also add a portrait fixture test to confirm padding keeps aspect ratio (no stretch).
+- [ ] **Step 6: Commit & push** on `feat/encoder-static`.
+
+---
+
+### Task 6: Encoder — animated (GIF/video)
+
+**Branch:** `feat/encoder-animated`
+
+**Files:**
+- Create: `lib/encoder/animated_encoder.dart`
+- Modify: `pubspec.yaml` (add `ffmpeg_kit_flutter` — pick the min GPL/LTS variant that includes libwebp/libvpx)
+- Test: `integration_test/animated_encoder_test.dart` (runs on a device/emulator — ffmpeg needs the platform)
+
+**Interfaces:**
+- Consumes: `MediaHandle` (gif/video), `EncodeParams` (uses `trim`), `WhatsAppSpec`.
+- Produces: `EncodedSticker` with `kind == StickerKind.animated`.
+
+- [ ] **Step 1: Verify the ffmpeg package variant** exposes animated-WebP muxing.
+
+Run (in `integration_test`): encode a 3 s test mp4 to animated webp via an FFmpeg command; assert exit code success. If the chosen variant lacks libwebp, switch variants before proceeding. Document the working variant in `CLAUDE.md`.
+
+- [ ] **Step 2: Write failing integration test** — trim to ≤ 10 s, output ≤ 500 KB, 512×512, animated:
+
+```dart
+testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
+  final out = await AnimatedEncoder().encode(videoHandle, const EncodeParams(trim: Duration(seconds: 6)));
+  expect(out.sizeBytes, lessThanOrEqualTo(512000));
+  expect(out.width, 512);
+  expect(out.report.frames * out.report.fps <= 10 * out.report.fps, isTrue);
+  expect((1000 / out.report.fps) >= 8, isTrue); // ≥8ms/frame
+});
+```
+
+- [ ] **Step 3: Run → FAIL.**
+- [ ] **Step 4: Implement `AnimatedEncoder`** with **progressive degradation** to hit 500 KB: pipeline = trim (≤10 s) → scale/pad to 512² → encode animated WebP at target fps/quality; if oversize, degrade in order **fps (15→12→10→8) → drop frames → quality → dimension-internal** until ≤ 500 KB, recording each choice in `QualityReport`. Never emit an oversize file — if the floor still exceeds 500 KB, throw `EncoderBudgetException` for the UI to surface.
+- [ ] **Step 5: Run → PASS** on emulator.
+- [ ] **Step 6: Commit & push** on `feat/encoder-animated`.
+
+---
+
+### Task 7: Sources — gallery, camera, share-in
+
+**Branch:** `feat/sources`
+
+**Files:**
+- Create: `lib/sources/source.dart`, `gallery_source.dart`, `camera_source.dart`, `share_in_source.dart`
+- Modify: `pubspec.yaml` (`image_picker`; `receive_sharing_intent` for share-into-app), Android manifest (share intent filters)
+- Test: `test/sources/source_contract_test.dart` (against a `FakeSource`)
+
+**Interfaces:**
+- Consumes: `MediaHandle`, `MediaKind`.
+- Produces: `abstract class Source { Future<MediaHandle?> pick(); }` and the three implementations. `pick()` returns `null` on user-cancel.
+
+- [ ] **Step 1: Write the contract test** — `FakeSource` returns a `MediaHandle`; assert non-null bytes and a valid `MediaKind`; a cancelling source returns `null`.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** `GallerySource`/`CameraSource` over `image_picker`, `ShareInSource` over `receive_sharing_intent`; map picked files → `MediaHandle` (infer `MediaKind` from mime/extension).
+- [ ] **Step 4: Run contract test → PASS.** (Real picker flows verified manually on device.)
+- [ ] **Step 5: Commit & push** on `feat/sources`.
+
+---
+
+### Task 8: Giphy source
+
+**Branch:** `feat/giphy-source`
+
+**Files:**
+- Create: `lib/sources/giphy_source.dart`, `lib/sources/giphy_client.dart`
+- Modify: `pubspec.yaml` (`http`); add `GIPHY_API_KEY` via `--dart-define`
+- Test: `test/sources/giphy_client_test.dart` (mock `http.Client`, no network)
+
+**Interfaces:**
+- Consumes: `http.Client`, `MediaHandle`.
+- Produces: `class GiphyClient { Future<List<GiphyGif>> search(String q, {int limit}); }`, `class GiphyGif { String id; String title; Uri previewUrl; Uri mp4Url; }`, and `GiphySource` (returns the chosen gif's media as a `MediaHandle` of kind `video`/`gif`).
+
+- [ ] **Step 1: Verify Giphy API terms** — confirm the free/beta key works, note rate limits and required attribution in `CLAUDE.md`.
+- [ ] **Step 2: Write failing test** — `GiphyClient.search` parses a canned JSON fixture into `GiphyGif`s (inject a mocked `http.Client`).
+- [ ] **Step 3: Run → FAIL.**
+- [ ] **Step 4: Implement** `GiphyClient` (GET `/v1/gifs/search`), `GiphySource` (download chosen gif bytes → `MediaHandle`). Feeds straight into the Encoder.
+- [ ] **Step 5: Run → PASS.**
+- [ ] **Step 6: Commit & push** on `feat/giphy-source`.
+
+---
+
+### Task 9: Tagger — ML Kit (FREE, on-device) + stub
+
+**Branch:** `feat/tagger`
+
+**Files:**
+- Create: `lib/tagger/tagging_service.dart`, `lib/tagger/mlkit_tagger.dart`, `test/tagger/fake_tagger.dart`
+- Modify: `pubspec.yaml` (`google_mlkit_image_labeling`, `google_mlkit_text_recognition`)
+- Test: `test/tagger/tagging_contract_test.dart`
+
+**Interfaces:**
+- Consumes: image bytes (PNG/WebP), `LibraryStore.setAutoTags`.
+- Produces:
+```dart
+class StickerTags { final List<String> subjects; final String? emotion; final String? action; final String? textInImage; final String? suggestedName; final String? style; List<String> flatten(); }
+abstract class TaggingService { Future<StickerTags> tag(Uint8List imageBytes); }
+```
+
+- [ ] **Step 1: Write the contract test** against `FakeTagger` (returns fixed tags); assert `flatten()` includes subjects + textInImage; assert an orchestrator writes them via `LibraryStore.setAutoTags` and sets `taggingStatus='done'`.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement `MlKitTagger`** — run on-device Image Labeling (subjects) + Text Recognition (textInImage); map to `StickerTags`. **No network, no key, free.** `suggestedName` = top label. (Optional free-tier hosted VLM adapter is a later drop-in behind `TaggingService` — not built now.)
+- [ ] **Step 4: Run contract test → PASS.** Real labeling verified on device.
+- [ ] **Step 5: Commit & push** on `feat/tagger`.
+
+---
+
+### Task 10: Search — FTS5 keyword + semantic + usage-ranking
+
+**Branch:** `feat/search`
+
+**Files:**
+- Create: `lib/search/search_service.dart`
+- Modify: `lib/library/database.dart` (add FTS5 virtual table mirroring `searchBlob`)
+- Test: `test/search/search_service_test.dart` (in-memory drift)
+
+**Interfaces:**
+- Consumes: `LibraryStore`, `StickerRecord.searchBlob()`, `usageCount`.
+- Produces:
+```dart
+class SearchHit { final StickerRecord record; final double score; }
+abstract class SearchService { Future<void> reindex(); Future<List<SearchHit>> query(String q, {int limit = 50}); }
+```
+
+- [ ] **Step 1: Write failing tests:**
+  - keyword: searching "arjun" returns the sticker whose manualName contains it;
+  - ranking: with two keyword-equal matches, the one with higher `usageCount` ranks first.
+
+```dart
+test('usageCount breaks ties in ranking', () async {
+  await store.saveSticker(matchA..usageCount = 0);
+  await store.saveSticker(matchB..usageCount = 5);
+  final hits = await search.query('dog');
+  expect(hits.first.record.id, matchB.id);
+});
+```
+
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement keyword search** via FTS5 over the blob; final score = `textMatchScore + usageWeight * log(1 + usageCount)`.
+- [ ] **Step 4: Add semantic layer (FREE):** verify/choose an on-device TFLite sentence-embedding model; embed each `searchBlob` on index and the query at search time; blend cosine similarity into the score. FTS5 remains the fallback if embeddings are unavailable. Add a semantic test ("puppy" retrieves a sticker tagged "dog").
+- [ ] **Step 5: Run → PASS.**
+- [ ] **Step 6: Commit & push** on `feat/search`.
+
+---
+
+### Task 11: Exporter — WhatsApp ContentProvider + intent
+
+**Branch:** `feat/exporter`
+
+**Files:**
+- Create: `android/app/src/main/kotlin/com/arjun/whatsapp_sticker_studio/StickerContentProvider.kt`, `lib/export/exporter.dart`
+- Modify: `AndroidManifest.xml` (register provider with authority + `com.whatsapp.sticker.READ`), add a `MethodChannel`
+- Test: `test/export/exporter_test.dart` (validation-gate logic) + manual device verification of the WhatsApp handshake
+
+**Interfaces:**
+- Consumes: `PackRecord`, `StickerRecord`, `StickerValidator` (Task 4).
+- Produces:
+```dart
+abstract class Exporter { Future<void> addPackToWhatsApp(PackRecord pack, List<StickerRecord> stickers); }
+```
+
+- [ ] **Step 1: Verify approach** — check whether a maintained Flutter WhatsApp-sticker package supports **animated** packs. If yes, use it and skip hand-writing the provider; if no, implement `StickerContentProvider.kt` mirroring the official `WhatsApp/stickers` sample (four content URIs; metadata incl. `animated_sticker_pack`). Record the decision in `CLAUDE.md`.
+- [ ] **Step 2: Write failing test** — `addPackToWhatsApp` throws `PackNotValidException` (surfacing `ValidationResult.problems`) when the pack is invalid, and does **not** fire the intent:
+
+```dart
+test('export blocks invalid pack', () async {
+  expect(() => exporter.addPackToWhatsApp(packOf(2), stickersOf(2)),
+         throwsA(isA<PackNotValidException>()));
+  expect(fakeChannel.intentsFired, isEmpty);
+});
+```
+
+- [ ] **Step 3: Run → FAIL.**
+- [ ] **Step 4: Implement** — validate first (Task 4); on pass, fire `com.whatsapp.intent.action.ENABLE_STICKER_PACK` with `sticker_pack_id`, `sticker_pack_authority`, `sticker_pack_name` via the MethodChannel; serve assets through the provider.
+- [ ] **Step 5: Run unit test → PASS.** Then on a device with WhatsApp: build a valid pack → tap Add → confirm the pack appears in WhatsApp.
+- [ ] **Step 6: Commit & push** on `feat/exporter`.
+
+---
+
+### Task 12: Sharing — single sticker + whole pack
+
+**Branch:** `feat/sharing`
+
+**Files:**
+- Create: `lib/sharing/sharing_service.dart`
+- Modify: `pubspec.yaml` (`share_plus`)
+- Test: `test/sharing/sharing_service_test.dart` (fake share backend)
+
+**Interfaces:**
+- Consumes: `StickerRecord`, `PackRecord`, `LibraryStore.incrementUsage`.
+- Produces:
+```dart
+abstract class SharingService {
+  Future<void> shareSticker(StickerRecord s); // share sheet, then incrementUsage
+  Future<void> sharePack(PackRecord p);        // pack-add flow for friends
+}
+```
+
+- [ ] **Step 1: Write failing test** — `shareSticker` calls the share backend with the WebP file and then calls `incrementUsage(s.id)` exactly once.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** over `share_plus`; `sharePack` reuses the Exporter's add-to-WhatsApp flow so a friend can add the pack.
+- [ ] **Step 4: Run → PASS.**
+- [ ] **Step 5: Commit & push** on `feat/sharing`.
+
+---
+
+### Task 13: Maker screen (UI flow)
+
+**Branch:** `feat/maker-ui`
+
+**Files:**
+- Create: `lib/ui/maker_screen.dart`
+- Test: `test/ui/maker_screen_test.dart` (widget test with fake Source/Encoder/Library)
+
+**Interfaces:**
+- Consumes: `Source`, `Encoder`, `LibraryStore`, `TaggingService`.
+- Produces: a screen; on "Save", persists via `LibraryStore` and kicks async tagging.
+
+- [ ] **Step 1: Write failing widget test** — pick (fake Source) → shows preview + fit-mode toggle + size/quality readout (from `QualityReport`) → tap Save → `LibraryStore.saveSticker` called once and async `TaggingService.tag` scheduled.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** the flow: source picker → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share".
+- [ ] **Step 4: Run → PASS.**
+- [ ] **Step 5: Commit & push** on `feat/maker-ui`.
+
+---
+
+### Task 14: Library & search screen (UI)
+
+**Branch:** `feat/library-ui`
+
+**Files:**
+- Create: `lib/ui/library_screen.dart`
+- Test: `test/ui/library_screen_test.dart` (widget test with fake SearchService/LibraryStore)
+
+**Interfaces:**
+- Consumes: `SearchService`, `LibraryStore`, `SharingService`.
+- Produces: a grid + search bar + per-sticker actions (share, edit metadata, add-to-pack).
+
+- [ ] **Step 1: Write failing widget test** — typing a query calls `SearchService.query` and renders the returned stickers in order; the edit sheet calls `LibraryStore.updateMetadata`.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** the grid, debounced search bar, metadata edit sheet, share/add-to-pack actions.
+- [ ] **Step 4: Run → PASS.**
+- [ ] **Step 5: Commit & push** on `feat/library-ui`.
+
+---
+
+### Task 15: End-to-end wiring & integration test
+
+**Branch:** `feat/e2e`
+
+**Files:**
+- Modify: `lib/main.dart` (dependency wiring, navigation between Maker and Library)
+- Test: `integration_test/end_to_end_test.dart`
+
+**Interfaces:**
+- Consumes: everything above.
+- Produces: the shipped app entrypoint.
+
+- [ ] **Step 1: Write failing integration test** — full loop on an emulator: create sticker from a bundled image → it appears in the Library → search finds it by an auto-tag → share increments `usageCount`.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Wire dependencies** in `main.dart` (concrete implementations injected; Maker + Library tabs).
+- [ ] **Step 4: Run the integration test on emulator → PASS.**
+- [ ] **Step 5: Run the full suite** — `flutter test` and `flutter test integration_test` → all green.
+- [ ] **Step 6: Commit & push** on `feat/e2e`; open a PR to `main`.
+
+---
+
+## Self-Review
+
+**Spec coverage:**
+- Pro Maker (encode, smart-fit, full 10 s, no crop) → Tasks 5, 6, 13. ✅
+- Giphy search source → Task 8 (+ Source interface Task 7). ✅
+- Auto-tagging (FREE) → Task 9. ✅
+- Manual metadata → Tasks 2 (fields), 3 (`updateMetadata`), 14 (edit UI). ✅
+- Search (keyword + semantic, usage-ranked) → Task 10. ✅
+- Export / Add-to-WhatsApp with pre-validation → Tasks 4, 11. ✅
+- Single + pack sharing → Task 12. ✅
+- `usageCount` as ranking-only signal → Tasks 3, 10, 12. ✅
+- Spec ceilings enforced → Task 2 (constants), 4 (validator), 5/6 (encoder budgets). ✅
+- v1.1 (bg-removal, text overlay) and v2 (existing-library import) → intentionally **absent**. ✅
+
+**Placeholder scan:** Platform-API "verify" steps (ffmpeg variant, Giphy terms, ML Kit model, sticker-package animated support, TFLite embedding model) are the spec's §9 deferred decisions, written as explicit verification steps with expected outcomes — not vague placeholders. No "TODO/handle edge cases" left.
+
+**Type consistency:** `MediaHandle`, `StickerKind`, `FitMode`, `EncodeParams`, `EncodedSticker`, `QualityReport`, `StickerRecord`, `PackRecord`, `ValidationResult`, `StickerTags`, `SearchHit`, and the `LibraryStore`/`Encoder`/`Source`/`TaggingService`/`SearchService`/`Exporter`/`SharingService` interfaces are defined once (Tasks 2–12) and referenced consistently by later tasks.

@@ -1,7 +1,7 @@
 # WhatsApp Sticker Studio — Design Spec
 
-- **Date:** 2026-07-10
-- **Status:** Approved design → ready for implementation planning
+- **Date:** 2026-07-10 (rev. 2026-07-11: added X/Twitter-link source)
+- **Status:** Approved design → implementation in progress
 - **Author:** Arjun (with Claude)
 
 ---
@@ -10,7 +10,7 @@
 
 A **standalone Android app** that makes and organizes WhatsApp stickers far better than WhatsApp's built-in tools, and lives *beside* WhatsApp — connected only through WhatsApp's two officially sanctioned bridges. It does three things:
 
-1. **Pro Maker** — turn an image / GIF / video (or a Giphy search result) into a high-quality 512×512 animated or static sticker, without WhatsApp's forced crop and short-duration limits.
+1. **Pro Maker** — turn an image / GIF / video (from the gallery, a Giphy search result, or a pasted **X/Twitter link**) into a high-quality 512×512 animated or static sticker, without WhatsApp's forced crop and short-duration limits.
 2. **Searchable Library** — every sticker you make is auto-tagged (free, on-device vision) and enriched with optional manual metadata, then found instantly by keyword or meaning.
 3. **Send / Share** — push stickers into WhatsApp as a pack (official "Add to WhatsApp") or share a single sticker via the share sheet, and share whole packs with friends.
 
@@ -27,6 +27,7 @@ These are verified facts (sources: `github.com/WhatsApp/stickers`, WhatsApp ToS,
 - **Search backend is not swappable inside WhatsApp** (server-side). WhatsApp already migrated its GIF search from Tenor to **Giphy** (2026). So "better search" is not a better corpus — it is our own search UI + ranking + conversion workflow, using the **Giphy API** as a Maker source.
 - **No usage endpoint.** WhatsApp exposes **no API** to read how many times a sticker was used inside WhatsApp; chats are E2E-encrypted and closed. We can only count sends that flow **through our app**. → A usage-stats dashboard is **out of scope**; a `usageCount` field is kept solely as a **ranking signal**.
 - **Existing WhatsApp sticker library** lives in WhatsApp's private storage and is not readable via standard APIs. Importing it (via Storage Access Framework folder grant → images only, no WhatsApp metadata) is **deferred to v2**.
+- **X/Twitter media has no free official API.** X killed its free API tier (Feb 2026; now pay-per-use ~$0.005/read). Media extraction therefore uses the same **unofficial route** all downloaders use (internal guest-token → GraphQL/player manifest → MP4), via battle-tested extractors (yt-dlp / cobalt). This works today but is **fragile** — X periodically changes required params. Mitigation: run extraction in a **minimal self-hosted service** so breakage is fixed server-side (update the extractor) without an app release. Note: a "Twitter GIF" is delivered as MP4, so it reuses the existing animated-encoder path.
 
 ---
 
@@ -36,6 +37,7 @@ These are verified facts (sources: `github.com/WhatsApp/stickers`, WhatsApp ToS,
 - **Pillar 1 — Better generation + search**
   - Pro Maker: image / GIF / video → compliant 512×512 WebP, up to full 10 s, **smart-fit** (pad / subject-aware) instead of forced center-crop, size-budgeted quality encoding, **no ads**.
   - **Giphy search as a Maker source**: search Giphy → pick → convert → save → send.
+  - **X/Twitter link as a Maker source**: paste a tweet link → a minimal self-hosted extractor (yt-dlp/cobalt) resolves the MP4 → convert → save → send. (Solves the "can't download a Twitter GIF without an online converter" pain.)
 - **Pillar 2 — Better organisation**
   - Auto-tagging (free, on-device vision) of every made sticker.
   - Optional **manual metadata** (name, pack, tags, notes).
@@ -61,7 +63,7 @@ These are verified facts (sources: `github.com/WhatsApp/stickers`, WhatsApp ToS,
 Five isolated modules, each with one job and a clean interface, independently testable. The two highest-risk / most-swappable modules (**Encoder**, **Tagger**) sit behind interfaces so their backends can change without touching consumers.
 
 ```
-        ┌────────────┐   Source (gallery / camera / share-in / Giphy)
+        ┌────────────┐   Source (gallery / camera / share-in / Giphy / X-link)
         │   Sources  ├───────────────┐
         └────────────┘               ▼
                             ┌───────────────────┐
@@ -81,7 +83,9 @@ Five isolated modules, each with one job and a clean interface, independently te
 ```
 
 ### 4.1 Sources (`Source` interface)
-Abstracts where input media comes from. **v1 sources:** gallery pick, camera, share-into-app, **Giphy search**. Giphy is *just another Source*, so search is fully in v1. Interface: `Source.pick() → MediaHandle` (bytes/URI + kind: image | gif | video). New providers (custom corpus, other APIs) drop in later without Maker changes.
+Abstracts where input media comes from. **v1 sources:** gallery pick, camera, share-into-app, **Giphy search**, **X/Twitter link**. Each is *just another Source*, so all input paths are fully in v1. Interface: `Source.pick() → MediaHandle` (bytes/URI + kind: image | gif | video). New providers (custom corpus, other APIs) drop in later without Maker changes.
+
+The **X-link source** posts the pasted URL to a minimal self-hosted extraction endpoint (yt-dlp or cobalt behind a small FastAPI service), receives the resolved MP4 URL, downloads it, and returns a `MediaHandle` of kind `video`. Keeping extraction server-side means X-format breakage is fixed by updating the extractor, not by shipping a new app build.
 
 ### 4.2 Encoder (the core engineering risk)
 Pure module: **media in → spec-compliant WebP out**, no UI. Responsibilities:
@@ -124,7 +128,7 @@ Query over a combined text blob = `autoTags + manualName + manualTags + notes`. 
 ## 5. Data flow
 
 ```
-create / Giphy-pick → Encoder (compliant WebP) → Library.save() + file store
+gallery / Giphy-pick / X-link → Encoder (compliant WebP) → Library.save() + file store
                                                         │
                                      async Tagger fills autoTags
                                                         │
@@ -147,7 +151,7 @@ create / Giphy-pick → Encoder (compliant WebP) → Library.save() + file store
 - **Vision/tagging:** **FREE** — ML Kit on-device (labeling + OCR) default; optional free-tier hosted VLM adapter. No paid model.
 - **Search:** SQLite **FTS5** + free on-device embeddings.
 - **Storage:** local SQLite (`drift`) + WebP file store.
-- **Backend:** **none in v1.** A thin **FastAPI** service can slot in *behind the `TaggingService`/`SearchService` interfaces* later (keys server-side, sync, scaling) without app changes.
+- **Backend:** **minimal in v1** — one small **FastAPI** service exposing a single `POST /extract` endpoint that wraps **yt-dlp** (or a self-hosted **cobalt** instance) to resolve an X/Twitter link → MP4 URL. This is the only server dependency in v1 and exists solely for the X-link source. It is also the first slice of the backend that can later absorb the `TaggingService`/`SearchService` interfaces (keys server-side, sync, scaling) without app changes.
 
 ---
 
@@ -158,6 +162,7 @@ create / Giphy-pick → Encoder (compliant WebP) → Library.save() + file store
 - **Tagger offline / fails** → sticker still saved; `taggingStatus` = pending; retried; search works on manual metadata + name meanwhile.
 - **WhatsApp not installed** → disable/relabel Add-to-WhatsApp and share actions gracefully.
 - **Giphy API unavailable / rate-limited** → degrade to other sources; never block the Maker.
+- **X-link extraction fails** (private/deleted tweet, X changed its params, service down) → show a clear "couldn't fetch this tweet's media" message and fall back to other sources; never crash the Maker. Log the failure to prompt an extractor update.
 
 ---
 
@@ -177,6 +182,7 @@ create / Giphy-pick → Encoder (compliant WebP) → Library.save() + file store
 2. **Free embedding model choice** (which on-device TFLite sentence model) — pick at plan time; FTS5 works regardless.
 3. **Giphy API terms / production key & rate limits** — confirm free-tier fit (trivial at personal scale).
 4. **Optional free-tier VLM** (Gemini vs Groq free tier) — only if richer tags are wanted beyond ML Kit.
+5. **X-link extractor choice & hosting** — yt-dlp-in-FastAPI vs self-hosted cobalt; where to host the tiny service (personal VPS / free-tier PaaS). Confirm current X extraction works at build time (`yt-dlp -U`).
 
 ---
 
@@ -186,6 +192,7 @@ create / Giphy-pick → Encoder (compliant WebP) → Library.save() + file store
 - **WhatsApp changes the sticker spec** without notice — re-verify ceilings against `github.com/WhatsApp/stickers` before building; centralize the constants.
 - **v2 existing-library import** may prove infeasible past image extraction — kept out of v1 so v1 never depends on it.
 - **Free-tier dependencies** (Giphy, optional hosted VLM) can change — the on-device defaults (ML Kit, FTS5) keep the app fully functional and free without them.
+- **X-link extraction is unofficial and fragile** — X changes break extractors periodically. Mitigated by (a) using maintained extractors (yt-dlp/cobalt), (b) keeping extraction server-side so a fix is a service update not an app release, and (c) graceful fallback to other sources. The rest of the app is fully functional if X extraction is temporarily down.
 
 ---
 

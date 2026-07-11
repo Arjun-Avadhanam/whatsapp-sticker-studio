@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a standalone Android app that makes high-quality WhatsApp stickers (image/GIF/video/Giphy → compliant 512×512 WebP), auto-tags and stores them in a searchable local library, and exports/shares them into WhatsApp via the official sticker API and share sheet.
+**Goal:** Ship a standalone Android app that makes high-quality WhatsApp stickers (image/GIF/video/Giphy/**X-Twitter link** → compliant 512×512 WebP), auto-tags and stores them in a searchable local library, and exports/shares them into WhatsApp via the official sticker API and share sheet.
 
 **Architecture:** Flutter app with five isolated modules behind interfaces — Sources, Encoder, Library store, Tagger, Search, Exporter/Sharing. Deterministic core logic (models, validation, encoding budget, search ranking) is pure Dart and unit-tested. Platform glue (ML Kit tagging, Giphy API, WhatsApp `ContentProvider`) lives behind the same interfaces with a small Kotlin layer.
 
-**Tech Stack:** Flutter (Dart) · Kotlin (native glue) · `drift` (SQLite + FTS5) · `ffmpeg_kit_flutter` + `libwebp` (encoding) · Google ML Kit on-device (image labeling + OCR, FREE) · on-device TFLite embeddings (FREE) · Giphy HTTP API (free tier).
+**Tech Stack:** Flutter (Dart) · Kotlin (native glue) · `drift` (SQLite + FTS5) · `ffmpeg_kit_flutter` + `libwebp` (encoding) · Google ML Kit on-device (image labeling + OCR, FREE) · on-device TFLite embeddings (FREE) · Giphy HTTP API (free tier) · **minimal FastAPI + yt-dlp/cobalt extraction service** (X/Twitter links only).
 
 ## Global Constraints
 
@@ -19,6 +19,7 @@ Copy these verbatim into `lib/core/whatsapp_spec.dart` (Task 2). Every task impl
 - Animation: **total duration ≤ 10 s (10000 ms)**, **minimum 8 ms per frame**.
 - A pack cannot be added silently — user confirms each "Add to WhatsApp".
 - **Vision/tagging must be FREE** — on-device ML Kit default; only free-tier hosted adapters allowed. No paid model.
+- **X/Twitter extraction is unofficial** — no free official X API; use maintained extractors (yt-dlp/cobalt) server-side; app must degrade gracefully when extraction fails.
 - **Git:** commit frequently; **one feature branch per task**; push to GitHub after each task; **never add "Co-authored-by" trailers**; report a task complete **only after its tests pass**.
 
 ---
@@ -54,7 +55,9 @@ whatsapp-sticker-project/
 │   │   ├── gallery_source.dart    # (Task 7)
 │   │   ├── camera_source.dart     # (Task 7)
 │   │   ├── share_in_source.dart   # (Task 7)
-│   │   └── giphy_source.dart      # (Task 8)
+│   │   ├── giphy_source.dart      # (Task 8)
+│   │   ├── extraction_client.dart # POST /extract → mp4 url (Task 8B)
+│   │   └── xlink_source.dart      # X/Twitter link → MediaHandle (Task 8B)
 │   ├── tagger/
 │   │   ├── tagging_service.dart   # TaggingService interface, StickerTags (Task 9)
 │   │   └── mlkit_tagger.dart      # (Task 9)
@@ -66,6 +69,11 @@ whatsapp-sticker-project/
 │       ├── maker_screen.dart      # (Task 13)
 │       └── library_screen.dart    # (Task 14)
 ├── android/app/src/main/kotlin/.../StickerContentProvider.kt  # (Task 11)
+├── services/extractor/            # minimal FastAPI + yt-dlp extraction service (Task 8B)
+│   ├── main.py                    # POST /extract {url} → {mp4_url, kind}
+│   ├── requirements.txt           # fastapi, uvicorn, yt-dlp
+│   ├── Dockerfile
+│   └── test_extractor.py          # pytest — mocked yt-dlp
 └── test/                          # mirrors lib/ ; integration_test/ for e2e (Task 15)
 ```
 
@@ -490,6 +498,137 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 
 ---
 
+### Task 8B: X/Twitter link → sticker (extraction service + XLinkSource)
+
+**Branch:** `feat/xlink-source`
+
+**Files:**
+- Create (backend): `services/extractor/main.py`, `services/extractor/requirements.txt`, `services/extractor/Dockerfile`, `services/extractor/test_extractor.py`
+- Create (app): `lib/sources/extraction_client.dart`, `lib/sources/xlink_source.dart`
+- Test (app): `test/sources/extraction_client_test.dart`
+
+**Interfaces:**
+- Backend HTTP: `POST /extract` with body `{"url": "<tweet url>"}` → `200 {"mp4_url": "<url>", "kind": "video"}`; on failure → `422 {"error": "<reason>"}`.
+- Consumes: `MediaHandle`, `MediaKind`, `Source` (Task 7), `http.Client`.
+- Produces:
+```dart
+class ExtractedMedia { final Uri mp4Url; final MediaKind kind; const ExtractedMedia(this.mp4Url, this.kind); }
+class ExtractionException implements Exception { final String message; ExtractionException(this.message); }
+class ExtractionClient { ExtractionClient(this._http, this._baseUri); Future<ExtractedMedia> extract(String tweetUrl); }
+// XLinkSource is constructed with the pasted URL (same pattern as GiphySource holding the chosen gif),
+// keeping the arg-less Source.pick() interface intact.
+class XLinkSource implements Source { XLinkSource(this._client, this._http, this._tweetUrl); Future<MediaHandle?> pick(); }
+```
+
+- [ ] **Step 1: Write the failing backend test** — `services/extractor/test_extractor.py` (mock yt-dlp; no network):
+
+```python
+from fastapi.testclient import TestClient
+from unittest.mock import patch
+import main
+
+client = TestClient(main.app)
+
+def test_extract_returns_mp4_url():
+    fake_info = {"url": "https://video.twimg.com/x.mp4",
+                 "formats": [{"url": "https://video.twimg.com/x.mp4", "ext": "mp4", "vcodec": "h264"}]}
+    with patch.object(main, "resolve_info", return_value=fake_info):
+        r = client.post("/extract", json={"url": "https://x.com/u/status/1"})
+    assert r.status_code == 200
+    assert r.json()["mp4_url"].endswith(".mp4")
+    assert r.json()["kind"] == "video"
+
+def test_extract_failure_returns_422():
+    with patch.object(main, "resolve_info", side_effect=RuntimeError("unavailable")):
+        r = client.post("/extract", json={"url": "https://x.com/u/status/1"})
+    assert r.status_code == 422
+    assert "error" in r.json()
+```
+
+- [ ] **Step 2: Run it to see it fail**
+
+Run: `cd services/extractor && pip install -r requirements.txt && pytest`
+Expected: FAIL — `main` not found.
+
+- [ ] **Step 3: Implement the service** — `services/extractor/main.py`:
+
+```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import yt_dlp
+
+app = FastAPI()
+
+class ExtractRequest(BaseModel):
+    url: str
+
+def resolve_info(url: str) -> dict:
+    # extract only; do NOT download the media here
+    with yt_dlp.YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
+        return ydl.extract_info(url, download=False)
+
+def pick_mp4(info: dict) -> str:
+    fmts = [f for f in info.get("formats", []) if f.get("ext") == "mp4" and f.get("url")]
+    if not fmts:
+        raise RuntimeError("no mp4 variant")
+    return max(fmts, key=lambda f: f.get("height") or 0)["url"]
+
+@app.post("/extract")
+def extract(req: ExtractRequest):
+    try:
+        info = resolve_info(req.url)
+        return {"mp4_url": pick_mp4(info), "kind": "video"}
+    except Exception as e:
+        raise HTTPException(status_code=422, detail={"error": str(e)})
+```
+
+`requirements.txt`: `fastapi`, `uvicorn`, `yt-dlp`. `Dockerfile`: python-slim, install requirements, `CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]`.
+
+- [ ] **Step 4: Run backend tests**
+
+Run: `cd services/extractor && pytest`
+Expected: PASS (2 tests).
+
+- [ ] **Step 5: Verify real extraction (§9 item)** — with the service running, `curl -X POST localhost:8000/extract -d '{"url":"<a real public tweet with a GIF/video>"}' -H 'Content-Type: application/json'` returns an mp4 URL. If X changed its params and it fails, run `pip install -U yt-dlp` and retry; pin the working version in `requirements.txt`. Note the deploy target (VPS / free-tier PaaS) in `CLAUDE.md`.
+
+- [ ] **Step 6: Write the failing Dart client test** — `test/sources/extraction_client_test.dart` (mocked `http.Client`, no network):
+
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:whatsapp_sticker_studio/sources/extraction_client.dart';
+import 'package:whatsapp_sticker_studio/core/media.dart';
+
+void main() {
+  test('parses mp4_url and kind from 200', () async {
+    final mock = MockClient((req) async =>
+        http.Response('{"mp4_url":"https://video.twimg.com/x.mp4","kind":"video"}', 200));
+    final client = ExtractionClient(mock, Uri.parse('http://localhost:8000'));
+    final media = await client.extract('https://x.com/u/status/1');
+    expect(media.mp4Url.toString(), endsWith('.mp4'));
+    expect(media.kind, MediaKind.video);
+  });
+
+  test('throws ExtractionException on 422', () async {
+    final mock = MockClient((req) async => http.Response('{"error":"unavailable"}', 422));
+    final client = ExtractionClient(mock, Uri.parse('http://localhost:8000'));
+    expect(() => client.extract('https://x.com/u/status/1'),
+           throwsA(isA<ExtractionException>()));
+  });
+}
+```
+
+- [ ] **Step 7: Run it to see it fail** — `flutter test test/sources/extraction_client_test.dart` → FAIL (no `extraction_client.dart`).
+
+- [ ] **Step 8: Implement `ExtractionClient` and `XLinkSource`.** `ExtractionClient.extract` POSTs `{url}` to `$_baseUri/extract`; on 200 parse `ExtractedMedia`; else throw `ExtractionException`. `XLinkSource.pick()` calls `extract(_tweetUrl)`, downloads the mp4 bytes via `_http.get`, and returns `MediaHandle(bytes: …, kind: MediaKind.video, mimeType: 'video/mp4')`; on `ExtractionException` returns `null` so the Maker can surface a friendly message (per spec §7).
+
+- [ ] **Step 9: Run Dart tests** — `flutter test test/sources` → PASS.
+
+- [ ] **Step 10: Commit & push** on `feat/xlink-source` (backend + app together).
+
+---
+
 ### Task 9: Tagger — ML Kit (FREE, on-device) + stub
 
 **Branch:** `feat/tagger`
@@ -628,7 +767,7 @@ abstract class SharingService {
 
 - [ ] **Step 1: Write failing widget test** — pick (fake Source) → shows preview + fit-mode toggle + size/quality readout (from `QualityReport`) → tap Save → `LibraryStore.saveSticker` called once and async `TaggingService.tag` scheduled.
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** the flow: source picker → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share".
+- [ ] **Step 3: Implement** the flow: source picker (gallery / camera / Giphy / **paste X-Twitter link**) → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share". The X-link entry shows a paste field, constructs an `XLinkSource(url)`, and surfaces a friendly error if extraction returns `null`.
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit & push** on `feat/maker-ui`.
 
@@ -680,6 +819,7 @@ abstract class SharingService {
 **Spec coverage:**
 - Pro Maker (encode, smart-fit, full 10 s, no crop) → Tasks 5, 6, 13. ✅
 - Giphy search source → Task 8 (+ Source interface Task 7). ✅
+- X/Twitter-link source (+ minimal extraction service) → Task 8B. ✅
 - Auto-tagging (FREE) → Task 9. ✅
 - Manual metadata → Tasks 2 (fields), 3 (`updateMetadata`), 14 (edit UI). ✅
 - Search (keyword + semantic, usage-ranked) → Task 10. ✅

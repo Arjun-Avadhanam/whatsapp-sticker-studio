@@ -4,6 +4,7 @@
 - Commit frequently. One feature branch per task (`feat/<task>`). Push to GitHub after each task.
 - **NEVER add "Co-authored-by" trailers to commit messages.**
 - Full testing before "done": run the test suite (unit + backend/integration where possible). Report a task complete **only after** its tests pass — never claim completion on untested code.
+- On the completion of a task - make sure to review, update any relevant documentation and finally report the current status of the project in the session.
 
 ## Product constraints (WhatsApp sticker spec — do not violate)
 - WebP only, exactly **512×512**. Static **≤ 100 KB**, animated **≤ 500 KB**. Tray icon **96×96 ≤ 50 KB**.

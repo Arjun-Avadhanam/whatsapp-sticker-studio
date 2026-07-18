@@ -110,6 +110,12 @@ Local **SQLite** (via `drift`) + a WebP file store. Owns CRUD and the search ind
 - **Sticker:** `id`, `filePath`, `thumbnailPath`, `kind` (static|animated), `packId`, `autoTags[]`, `manualName`, `manualTags[]`, `notes`, `source`, `createdAt`, `usageCount`, `sizeBytes`, `taggingStatus`.
 - **Pack:** `id`, `name`, `trayIconPath`, `isAnimated`, `stickerIds[]`, `createdAt`. (Mirrors WhatsApp's pack model; required for export — 3–30 stickers, one tray icon.)
 
+`isAnimated` maps to WhatsApp's pack-level `animated_sticker_pack` flag: **a pack is all-static or
+all-animated, never mixed**, and the flag also selects the size ceiling (100 KB vs 500 KB). Rather
+than surfacing this to the user, the Maker **silently promotes** a static sticker to animated
+(re-encoded as ≥2 identical frames) when it joins an animated pack — decided 2026-07-18, rationale
+and the ruled-out single-frame variant in `CLAUDE.md`.
+
 Both records are **immutable value types**: all fields `final`, updates via `copyWith()`, value
 `==`/`hashCode`. `taggingStatus` (`pending|done|failed`) and `source` (`maker|gallery|camera|shareIn|giphy|xLink`)
 are **enums**, not free-form strings, so invalid states can't be constructed and the compiler

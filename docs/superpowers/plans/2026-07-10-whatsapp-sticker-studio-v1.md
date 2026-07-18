@@ -467,11 +467,44 @@ void main() {
     expect(r.ok, isTrue);
     expect(r.problems, isEmpty);
   });
+
+  // Kind homogeneity — added 2026-07-18; see the note below.
+  test('animated pack containing a static sticker fails', () {
+    final pack = packOf(3, isAnimated: true);
+    final stickers = [
+      stickerOf(400000, StickerKind.animated),
+      stickerOf(400000, StickerKind.animated),
+      stickerOf(50000, StickerKind.staticImage), // the intruder
+    ];
+    final r = v.validatePack(pack, stickers);
+    expect(r.ok, isFalse);
+    expect(r.problems.any((p) => p.contains('animated')), isTrue);
+  });
+
+  test('static pack containing an animated sticker fails', () {
+    final r = v.validatePack(packOf(3, isAnimated: false), [
+      stickerOf(50000, StickerKind.staticImage),
+      stickerOf(50000, StickerKind.staticImage),
+      stickerOf(400000, StickerKind.animated),
+    ]);
+    expect(r.ok, isFalse);
+  });
 }
 ```
 
+> **Kind homogeneity is a real WhatsApp rule and was missing from this task.** Packs must be
+> all-static or all-animated — `animated_sticker_pack` is a pack-level flag that also selects the
+> size ceiling. WhatsApp enforces this **independently of our code** (see `CLAUDE.md`), so the
+> validator must catch it before we fire the intent, or the user gets an opaque rejection.
+>
+> This validator is the **backstop, not the UX**. Per the 2026-07-18 decision, the Maker
+> (Task 13) auto-promotes a static sticker to animated (≥2 identical frames) when it joins an
+> animated pack, so a mixed pack should never reach here. Reaching this rule means promotion failed
+> or was skipped — a bug, not a user error.
+
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** using `WhatsAppSpec` (count 3–30; per-sticker size by kind; collect all problems, don't short-circuit).
+- [ ] **Step 3: Implement** using `WhatsAppSpec` (count 3–30; per-sticker size by kind; **every
+  sticker's `kind` must match the pack's `isAnimated`**; collect all problems, don't short-circuit).
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit & push** on `feat/validator`.
 
@@ -563,6 +596,25 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 > - A scene cut mid-clip forces a new keyframe. If a source blows the budget, check for cuts before
 >   assuming the whole clip is too complex.
 - [ ] **Step 5: Run → PASS** on emulator.
+
+- [ ] **Step 5b: Implement static→animated promotion** *(added 2026-07-18 — see `CLAUDE.md`)*
+
+  Add `Future<EncodedSticker> promoteStatic(Uint8List staticWebp)`: re-encode a static image as an
+  animated WebP of **≥2 identical frames**, each ≥8 ms. Used when a static sticker joins an animated
+  pack, so the user never sees a mixed-kind error.
+
+  **A single frame does not work** — WhatsApp's validator tests `getFrameCount() <= 1`, not whether
+  an ANIM chunk exists, so a 1-frame file is rejected exactly like a static one. Two frames is the
+  floor; there is no minimum total duration.
+
+  Failing test first: promoting a static yields `kind == StickerKind.animated`, `report.frames >= 2`,
+  every frame duration ≥ `WhatsAppSpec.minFrameMs`, total ≤ `maxAnimationMs`, and size ≤
+  `maxAnimatedBytes` (note the ceiling is now 500 KB, not 100 KB — promotion *raises* the budget).
+
+  Verify on a device against WhatsApp's **closed-source** validator, which is stricter than the
+  published sample. **If it rejects the promoted sticker, fall back to pack-type-chosen-at-creation**
+  (Sticker.ly's model) and revisit Task 13's flow.
+
 - [ ] **Step 6: Commit & push** on `feat/encoder-animated`.
 
 ---
@@ -899,6 +951,21 @@ abstract class SharingService {
 - [ ] **Step 1: Write failing widget test** — pick (fake Source) → shows preview + fit-mode toggle + size/quality readout (from `QualityReport`) → tap Save → `LibraryStore.saveSticker` called once and async `TaggingService.tag` scheduled.
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement** the flow: source picker (gallery / camera / Giphy / **paste X-Twitter link**) → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share". The X-link entry shows a paste field, constructs an `XLinkSource(url)`, and surfaces a friendly error if extraction returns `null`.
+
+- [ ] **Step 3b: Add-to-pack silently promotes statics** *(added 2026-07-18 — see `CLAUDE.md`)*
+
+  When the user adds a **static** sticker to an **animated** pack, call
+  `AnimatedEncoder.promoteStatic` (Task 6 Step 5b) and add it with no dialog, no warning, no error.
+  The pack-kind constraint must be invisible.
+
+  Failing widget test first: selecting an animated pack for a static sticker results in
+  `LibraryStore.saveSticker` receiving a record with `kind == StickerKind.animated`, and **no error
+  widget is shown**.
+
+  Do **not** grey out incompatible packs or explain the constraint. Research into ~9,700 competitor
+  reviews found *zero* users who correctly diagnosed it — they blame paywalls and bugs. Apps that
+  accept the sticker then fail at export earn *"I wasted literally 20 mins"*. Promotion is the only
+  approach users praise.
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit & push** on `feat/maker-ui`.
 

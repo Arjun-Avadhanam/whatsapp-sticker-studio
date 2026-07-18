@@ -86,13 +86,13 @@ whatsapp-sticker-project/
 **Files:**
 - Create: `/home/arjun/whatsapp-sticker-project/` (Flutter project root)
 - Create: `CLAUDE.md`, `.gitignore`, `analysis_options.yaml`
-- Create: `test/smoke_test.dart`
+- Create: `test/smoke_test.dart`, `.github/workflows/ci.yml`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: a buildable Flutter app + green test run + a GitHub remote.
+- Produces: a buildable Flutter app + green test run + a GitHub remote + green CI.
 
-- [ ] **Step 1: Create the Flutter project**
+- [x] **Step 1: Create the Flutter project**
 
 ```bash
 cd /home/arjun
@@ -100,7 +100,7 @@ flutter create --org com.arjun --project-name whatsapp_sticker_studio --platform
 cd /home/arjun/whatsapp-sticker-project
 ```
 
-- [ ] **Step 2: Write `CLAUDE.md`** (repo-root, so rules load wherever the repo is worked on)
+- [x] **Step 2: Write `CLAUDE.md`** (repo-root, so rules load wherever the repo is worked on)
 
 ```markdown
 # WhatsApp Sticker Studio — Working Rules
@@ -119,7 +119,7 @@ cd /home/arjun/whatsapp-sticker-project
 See docs/ for the full design spec and implementation plan.
 ```
 
-- [ ] **Step 3: Write a smoke test** — `test/smoke_test.dart`
+- [x] **Step 3: Write a smoke test** — `test/smoke_test.dart`
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -131,12 +131,26 @@ void main() {
 }
 ```
 
-- [ ] **Step 4: Run the smoke test**
+- [x] **Step 4: Run the smoke test**
 
-Run: `flutter test test/smoke_test.dart`
-Expected: PASS (1 test).
+Run: `flutter test`
+Expected: PASS. *(Actual: 2/2 passed — smoke + scaffold widget test.)*
 
-- [ ] **Step 5: Init git, first commit**
+- [x] **Step 4b: Verify the Android build actually works** *(added — tests compile Dart only and do NOT prove the Android build)*
+
+Run: `flutter build apk --debug`
+Expected: `✓ Built build/app/outputs/flutter-apk/app-debug.apk`.
+*(Actual: initially FAILED with `[CXX1416] Could not find Ninja`. Root cause: the scaffold sets
+`ndkVersion`, so Gradle configures a CMake task; only the system `/usr/bin/cmake` was present and it
+ships no ninja. Fixed with `sdkmanager "cmake;3.22.1"`, which bundles ninja. Build then succeeded.)*
+
+- [x] **Step 4c: Add CI** *(added — the task title promised CI but the original steps omitted it)*
+
+Create `.github/workflows/ci.yml` running on every push/PR: `dart format` check → `flutter analyze`
+→ `flutter test`, then a `build-apk` job for `flutter build apk --debug`. This mechanically enforces
+the "full testing before done" rule instead of relying on memory.
+
+- [x] **Step 5: Init git, first commit**
 
 ```bash
 cd /home/arjun/whatsapp-sticker-project
@@ -145,7 +159,7 @@ git add -A
 git commit -m "chore: bootstrap Flutter project, CLAUDE.md, smoke test"
 ```
 
-- [ ] **Step 6: Create GitHub repo and push**
+- [x] **Step 6: Create GitHub repo and push**
 
 ```bash
 gh repo create whatsapp-sticker-studio --private --source=. --remote=origin --push

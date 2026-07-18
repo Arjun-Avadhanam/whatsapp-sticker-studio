@@ -38,12 +38,14 @@ show me the output.
 **Where things stand (2026-07-11):** Task 1 complete and verified. Next is **Task 2 — core spec
 constants + domain models**, branch `feat/domain-models`. Pure Dart, no device needed.
 
-**Three agreed deviations to apply in Task 2** (decided after reviewing the plan):
-1. `taggingStatus` and `source` become **enums**, not `String`.
-2. Records use **`final` fields + `copyWith()`**, not mutable fields.
-   ⚠️ This means **Task 10's test must be fixed** — it currently uses `matchA..usageCount = 0`
-   cascade mutation, which won't compile against final fields. Use `copyWith` there.
-3. Records get value **`==` / `hashCode`** (hand-written, no new dependency).
+**Three agreed deviations — now folded into the spec and plan (2026-07-18), no longer side notes:**
+1. `taggingStatus` (`TaggingStatus`) and `source` (`StickerSource`) are **enums**, not `String`.
+2. Records are immutable: **`final` fields + `copyWith()`**. Task 10's test was rewritten off the
+   `matchA..usageCount = 0` cascade (it wouldn't compile against final fields) onto `copyWith`.
+3. Records get value **`==` / `hashCode`**, hand-written, using `DeepCollectionEquality` for the
+   list fields. No new dependency.
+
+Read the plan's Task 2 as written — it is the source of truth now.
 
 **Toolchain gotchas — already solved, don't rediscover:**
 - Flutter lives at `~/flutter`. Non-interactive shells don't read `~/.bashrc`, so every script must

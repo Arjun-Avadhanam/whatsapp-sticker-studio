@@ -110,6 +110,11 @@ Local **SQLite** (via `drift`) + a WebP file store. Owns CRUD and the search ind
 - **Sticker:** `id`, `filePath`, `thumbnailPath`, `kind` (static|animated), `packId`, `autoTags[]`, `manualName`, `manualTags[]`, `notes`, `source`, `createdAt`, `usageCount`, `sizeBytes`, `taggingStatus`.
 - **Pack:** `id`, `name`, `trayIconPath`, `isAnimated`, `stickerIds[]`, `createdAt`. (Mirrors WhatsApp's pack model; required for export — 3–30 stickers, one tray icon.)
 
+Both records are **immutable value types**: all fields `final`, updates via `copyWith()`, value
+`==`/`hashCode`. `taggingStatus` (`pending|done|failed`) and `source` (`maker|gallery|camera|shareIn|giphy|xLink`)
+are **enums**, not free-form strings, so invalid states can't be constructed and the compiler
+catches every unhandled case at the switch sites.
+
 ### 4.5 Search (free)
 Query over a combined text blob = `autoTags + manualName + manualTags + notes`. Two layers, both free:
 - **Keyword:** SQLite **FTS5** (fast, offline, always available).
@@ -159,7 +164,7 @@ gallery / Giphy-pick / X-link → Encoder (compliant WebP) → Library.save() + 
 
 - **Encoder can't hit 500 KB at good quality** → progressive, *visible* degradation (fps → frames → dims/quality) with a live size/quality readout; never emit a rejectable file.
 - **Pack fails validation** (count 3–30, tray 96×96 ≤ 50 KB, dims/sizes) → block export, show precisely what's wrong.
-- **Tagger offline / fails** → sticker still saved; `taggingStatus` = pending; retried; search works on manual metadata + name meanwhile.
+- **Tagger offline / fails** → sticker still saved; `taggingStatus` = `TaggingStatus.pending` (or `failed` after a terminal error); retried; search works on manual metadata + name meanwhile.
 - **WhatsApp not installed** → disable/relabel Add-to-WhatsApp and share actions gracefully.
 - **Giphy API unavailable / rate-limited** → degrade to other sources; never block the Maker.
 - **X-link extraction fails** (private/deleted tweet, X changed its params, service down) → show a clear "couldn't fetch this tweet's media" message and fall back to other sources; never crash the Maker. Log the failure to prompt an extractor update.

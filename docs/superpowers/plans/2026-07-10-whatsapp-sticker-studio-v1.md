@@ -185,8 +185,52 @@ Expected: repo created; `main` pushed. Verify with `gh repo view --web` or `git 
   - `enum StickerKind { staticImage, animated }`
   - `enum FitMode { pad, smartCrop, contain }`
   - `class MediaHandle { final Uint8List bytes; final MediaKind kind; final String? mimeType; }`
-  - `class StickerRecord { String id; String filePath; String thumbnailPath; StickerKind kind; String? packId; List<String> autoTags; String? manualName; List<String> manualTags; String? notes; String source; DateTime createdAt; int usageCount; int sizeBytes; String taggingStatus; String searchBlob(); }`
-  - `class PackRecord { String id; String name; String trayIconPath; bool isAnimated; List<String> stickerIds; DateTime createdAt; }`
+  - `enum TaggingStatus { pending, done, failed }` (in `sticker_record.dart`)
+  - `enum StickerSource { maker, gallery, camera, shareIn, giphy, xLink }` (in `sticker_record.dart`)
+  - `StickerRecord` and `PackRecord` — **immutable value types**: every field `final`, a `copyWith()`
+    for each, and hand-written `==`/`hashCode` (no new dependency; list fields compared elementwise
+    via `package:collection`'s `DeepCollectionEquality`, already a transitive Flutter dep).
+
+```dart
+class StickerRecord {
+  final String id;
+  final String filePath;
+  final String thumbnailPath;
+  final StickerKind kind;
+  final String? packId;
+  final List<String> autoTags;
+  final String? manualName;
+  final List<String> manualTags;
+  final String? notes;
+  final StickerSource source;
+  final DateTime createdAt;
+  final int usageCount;
+  final int sizeBytes;
+  final TaggingStatus taggingStatus;
+  const StickerRecord({required this.id, /* … */});
+  String searchBlob();
+  StickerRecord copyWith({String? manualName, List<String>? manualTags, String? notes,
+                          List<String>? autoTags, int? usageCount, TaggingStatus? taggingStatus,
+                          String? packId});
+}
+
+class PackRecord {
+  final String id;
+  final String name;
+  final String trayIconPath;
+  final bool isAnimated;
+  final List<String> stickerIds;
+  final DateTime createdAt;
+  const PackRecord({required this.id, /* … */});
+  PackRecord copyWith({String? name, String? trayIconPath, List<String>? stickerIds});
+}
+```
+
+> **Why immutable + enums:** `taggingStatus`/`source` as `String` invite typo bugs the compiler
+> can't catch (`'done'` vs `'Done'`), and mutable records make it impossible to tell whether a
+> store returned a fresh row or a caller's aliased object. Value `==` also makes every downstream
+> test assert on whole records instead of field-by-field. Later tasks (3, 9, 10, 12) mutate records
+> **only** via `copyWith` — no cascade assignment anywhere.
 
 - [ ] **Step 1: Write the failing test** — `test/core/whatsapp_spec_test.dart`
 
@@ -248,8 +292,8 @@ void main() {
       kind: StickerKind.animated, packId: null,
       autoTags: ['dog', 'high five'], manualName: 'Arjun high five',
       manualTags: ['friends'], notes: 'inside joke',
-      source: 'maker', createdAt: DateTime(2026), usageCount: 0,
-      sizeBytes: 400000, taggingStatus: 'done',
+      source: StickerSource.maker, createdAt: DateTime(2026), usageCount: 0,
+      sizeBytes: 400000, taggingStatus: TaggingStatus.done,
     );
     final blob = r.searchBlob().toLowerCase();
     for (final term in ['dog', 'high five', 'arjun', 'friends', 'inside joke']) {
@@ -259,7 +303,30 @@ void main() {
 }
 ```
 
-- [ ] **Step 6: Implement `StickerRecord` and `PackRecord`** — `searchBlob()` returns `[autoTags, manualName, manualTags, notes].join(' ')` with nulls skipped.
+- [ ] **Step 5b: Write failing tests for value equality and `copyWith`** — same file:
+
+```dart
+test('records with identical field values are equal', () {
+  expect(sample(), equals(sample()));
+  expect(sample().hashCode, equals(sample().hashCode));
+});
+
+test('records differing in a list element are not equal', () {
+  expect(sample(), isNot(equals(sample().copyWith(autoTags: ['cat']))));
+});
+
+test('copyWith changes only the named field', () {
+  final bumped = sample().copyWith(usageCount: 5);
+  expect(bumped.usageCount, 5);
+  expect(bumped.copyWith(usageCount: 0), equals(sample()));
+});
+```
+
+- [ ] **Step 6: Implement `StickerRecord` and `PackRecord`** — all fields `final`; `searchBlob()`
+  returns `[autoTags, manualName, manualTags, notes].join(' ')` with nulls skipped; `copyWith()` per
+  the Interfaces block; hand-written `==`/`hashCode` using `DeepCollectionEquality` for the list
+  fields (a plain `==` on `List` compares identity and would make Step 5b's first test fail).
+  Declare `TaggingStatus` and `StickerSource` in `sticker_record.dart`.
 
 - [ ] **Step 7: Run model tests**
 
@@ -294,7 +361,7 @@ abstract class LibraryStore {
   Future<StickerRecord?> getSticker(String id);
   Future<List<StickerRecord>> allStickers();
   Future<void> updateMetadata(String id, {String? manualName, List<String>? manualTags, String? notes});
-  Future<void> setAutoTags(String id, List<String> tags);      // sets taggingStatus='done'
+  Future<void> setAutoTags(String id, List<String> tags);      // sets taggingStatus = TaggingStatus.done
   Future<void> incrementUsage(String id);
   Future<void> savePack(PackRecord p);
   Future<PackRecord?> getPack(String id);
@@ -331,8 +398,14 @@ void main() {
 ```
 
 - [ ] **Step 3: Run it to see it fail** — `flutter test test/library` → FAIL (no `database.dart`).
-- [ ] **Step 4: Define drift tables** in `database.dart` (Stickers, Packs; list columns stored as JSON text via a `TypeConverter`), run `dart run build_runner build --delete-conflicting-outputs`.
-- [ ] **Step 5: Implement `DriftLibraryStore`** mapping rows ↔ records.
+- [ ] **Step 4: Define drift tables** in `database.dart` (Stickers, Packs; list columns stored as
+  JSON text via a `TypeConverter`; `taggingStatus`/`source` stored via drift's `textEnum`, which persists
+  the enum **name** — not `intEnum`, whose index would silently remap existing rows if the enum is
+  ever reordered),
+  run `dart run build_runner build --delete-conflicting-outputs`.
+- [ ] **Step 5: Implement `DriftLibraryStore`** mapping rows ↔ records. Mutating methods
+  (`updateMetadata`, `setAutoTags`, `incrementUsage`) read the row, apply `copyWith`, and write back
+  — records are immutable, so nothing is mutated in place.
 - [ ] **Step 6: Run tests** — `flutter test test/library` → PASS.
 - [ ] **Step 7: Commit & push** on `feat/library-store`.
 
@@ -660,7 +733,7 @@ class StickerTags { final List<String> subjects; final String? emotion; final St
 abstract class TaggingService { Future<StickerTags> tag(Uint8List imageBytes); }
 ```
 
-- [ ] **Step 1: Write the contract test** against `FakeTagger` (returns fixed tags); assert `flatten()` includes subjects + textInImage; assert an orchestrator writes them via `LibraryStore.setAutoTags` and sets `taggingStatus='done'`.
+- [ ] **Step 1: Write the contract test** against `FakeTagger` (returns fixed tags); assert `flatten()` includes subjects + textInImage; assert an orchestrator writes them via `LibraryStore.setAutoTags` and sets `taggingStatus` to `TaggingStatus.done` (and to `TaggingStatus.failed` when `tag()` throws — see spec §7).
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement `MlKitTagger`** — run on-device Image Labeling (subjects) + Text Recognition (textInImage); map to `StickerTags`. **No network, no key, free.** `suggestedName` = top label. (Optional free-tier hosted VLM adapter is a later drop-in behind `TaggingService` — not built now.)
 - [ ] **Step 4: Run contract test → PASS.** Real labeling verified on device.
@@ -691,8 +764,8 @@ abstract class SearchService { Future<void> reindex(); Future<List<SearchHit>> q
 
 ```dart
 test('usageCount breaks ties in ranking', () async {
-  await store.saveSticker(matchA..usageCount = 0);
-  await store.saveSticker(matchB..usageCount = 5);
+  await store.saveSticker(matchA.copyWith(usageCount: 0));
+  await store.saveSticker(matchB.copyWith(usageCount: 5));
   final hits = await search.query('dog');
   expect(hits.first.record.id, matchB.id);
 });
@@ -845,4 +918,4 @@ abstract class SharingService {
 
 **Placeholder scan:** Platform-API "verify" steps (ffmpeg variant, Giphy terms, ML Kit model, sticker-package animated support, TFLite embedding model) are the spec's §9 deferred decisions, written as explicit verification steps with expected outcomes — not vague placeholders. No "TODO/handle edge cases" left.
 
-**Type consistency:** `MediaHandle`, `StickerKind`, `FitMode`, `EncodeParams`, `EncodedSticker`, `QualityReport`, `StickerRecord`, `PackRecord`, `ValidationResult`, `StickerTags`, `SearchHit`, and the `LibraryStore`/`Encoder`/`Source`/`TaggingService`/`SearchService`/`Exporter`/`SharingService` interfaces are defined once (Tasks 2–12) and referenced consistently by later tasks.
+**Type consistency:** `MediaHandle`, `StickerKind`, `FitMode`, `TaggingStatus`, `StickerSource`, `EncodeParams`, `EncodedSticker`, `QualityReport`, `StickerRecord`, `PackRecord`, `ValidationResult`, `StickerTags`, `SearchHit`, and the `LibraryStore`/`Encoder`/`Source`/`TaggingService`/`SearchService`/`Exporter`/`SharingService` interfaces are defined once (Tasks 2–12) and referenced consistently by later tasks.

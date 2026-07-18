@@ -35,17 +35,24 @@ show me the output.
 
 ## Fast facts for whoever picks this up
 
-**Where things stand (2026-07-11):** Task 1 complete and verified. Next is **Task 2 — core spec
-constants + domain models**, branch `feat/domain-models`. Pure Dart, no device needed.
+**Where things stand (2026-07-18):** Tasks 1 and 2 complete and verified — 20/20 tests, analyze
+clean, format clean, debug APK builds. Next is **Task 3 — drift/SQLite library store**, branch
+`feat/library-store`. Pure Dart with an in-memory DB, no device needed.
 
-**Three agreed deviations — now folded into the spec and plan (2026-07-18), no longer side notes:**
-1. `taggingStatus` (`TaggingStatus`) and `source` (`StickerSource`) are **enums**, not `String`.
-2. Records are immutable: **`final` fields + `copyWith()`**. Task 10's test was rewritten off the
-   `matchA..usageCount = 0` cascade (it wouldn't compile against final fields) onto `copyWith`.
-3. Records get value **`==` / `hashCode`**, hand-written, using `DeepCollectionEquality` for the
-   list fields. No new dependency.
+**Task 2 shipped** `WhatsAppSpec`, `media.dart` (MediaKind/StickerKind/FitMode/MediaHandle) and
+immutable `StickerRecord`/`PackRecord`. The three agreed deviations (enums, `final` + `copyWith`,
+value equality) are folded into the spec and plan — read those as written, they are the source of
+truth. Two implementation details worth knowing before touching the records:
+- List fields compare via `listEquals` and hash via `Object.hashAll`. `List`'s own `==`/`hashCode`
+  are identity-based, so the obvious implementation makes a record unequal to its own copy.
+- `copyWith`'s **nullable** params are `Object?` defaulting to a private `_unset` sentinel. The
+  naive `String?` form can't tell "not supplied" from "supplied null", so fields could never be
+  cleared — and clearing `packId` is how a sticker leaves a pack.
 
-Read the plan's Task 2 as written — it is the source of truth now.
+**Read the "WhatsApp API realities" section in `CLAUDE.md` before Tasks 4, 11 or 13.** Researched
+2026-07-18: WhatsApp validates independently of our code (you can't delete your way around a rule),
+`avoid_cache` is deprecated, pack-refresh-after-update is an unfixed WhatsApp defect, and packs are
+homogeneous — with an agreed silent-promotion strategy for statics joining animated packs.
 
 **Toolchain gotchas — already solved, don't rediscover:**
 - Flutter lives at `~/flutter`. Non-interactive shells don't read `~/.bashrc`, so every script must

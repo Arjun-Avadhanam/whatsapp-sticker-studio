@@ -232,7 +232,7 @@ class PackRecord {
 > test assert on whole records instead of field-by-field. Later tasks (3, 9, 10, 12) mutate records
 > **only** via `copyWith` — no cascade assignment anywhere.
 
-- [ ] **Step 1: Write the failing test** — `test/core/whatsapp_spec_test.dart`
+- [x] **Step 1: Write the failing test** — `test/core/whatsapp_spec_test.dart`
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -253,12 +253,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `flutter test test/core/whatsapp_spec_test.dart`
 Expected: FAIL — `whatsapp_spec.dart` not found.
 
-- [ ] **Step 3: Implement constants** — `lib/core/whatsapp_spec.dart`
+- [x] **Step 3: Implement constants** — `lib/core/whatsapp_spec.dart`
 
 ```dart
 class WhatsAppSpec {
@@ -276,9 +276,9 @@ class WhatsAppSpec {
 }
 ```
 
-- [ ] **Step 4: Implement `media.dart`** — enums + `MediaHandle` (see Interfaces block; `import 'dart:typed_data';`).
+- [x] **Step 4: Implement `media.dart`** — enums + `MediaHandle` (see Interfaces block; `import 'dart:typed_data';`).
 
-- [ ] **Step 5: Write failing test for `StickerRecord.searchBlob()`** — `test/models/sticker_record_test.dart`
+- [x] **Step 5: Write failing test for `StickerRecord.searchBlob()`** — `test/models/sticker_record_test.dart`
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -303,7 +303,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 5b: Write failing tests for value equality and `copyWith`** — same file:
+- [x] **Step 5b: Write failing tests for value equality and `copyWith`** — same file:
 
 ```dart
 test('records with identical field values are equal', () {
@@ -322,18 +322,31 @@ test('copyWith changes only the named field', () {
 });
 ```
 
-- [ ] **Step 6: Implement `StickerRecord` and `PackRecord`** — all fields `final`; `searchBlob()`
+- [x] **Step 6: Implement `StickerRecord` and `PackRecord`** — all fields `final`; `searchBlob()`
   returns `[autoTags, manualName, manualTags, notes].join(' ')` with nulls skipped; `copyWith()` per
-  the Interfaces block; hand-written `==`/`hashCode` using `DeepCollectionEquality` for the list
-  fields (a plain `==` on `List` compares identity and would make Step 5b's first test fail).
-  Declare `TaggingStatus` and `StickerSource` in `sticker_record.dart`.
+  the Interfaces block; hand-written `==`/`hashCode` for the list fields (a plain `==` on `List`
+  compares identity and would make Step 5b's first test fail). Declare `TaggingStatus` and
+  `StickerSource` in `sticker_record.dart`.
 
-- [ ] **Step 7: Run model tests**
+  *(Actual: used **`listEquals` from `package:flutter/foundation.dart`** rather than the planned
+  `DeepCollectionEquality` — identical behaviour for our flat `List<String>` fields, and it is
+  already a declared dependency, so no new package. Hashing uses `Object.hashAll`, since
+  `List.hashCode` is identity-based too.*
+
+  *Also unplanned: `copyWith`'s **nullable** params are typed `Object?` defaulting to a private
+  `_unset` sentinel. The naive `String?` form cannot distinguish `copyWith()` from
+  `copyWith(manualName: null)` — both arrive as `null` — making it impossible to ever clear
+  `packId`, `manualName` or `notes`. Clearing `packId` is how a sticker leaves a pack, so this is
+  load-bearing, not academic. Non-nullable params keep the plain `?? this.x` form.)*
+
+- [x] **Step 7: Run model tests**
 
 Run: `flutter test test/models test/core`
-Expected: PASS.
+Expected: PASS. *(Actual: 20/20 pass across the whole suite; `dart format` and `flutter analyze`
+clean. `dart format` did rewrite `test/core/media_test.dart` — CI would have failed on it, so run
+the format check locally before pushing, not just `flutter test`.)*
 
-- [ ] **Step 8: Commit & push**
+- [x] **Step 8: Commit & push**
 
 ```bash
 git checkout -b feat/domain-models
@@ -454,11 +467,44 @@ void main() {
     expect(r.ok, isTrue);
     expect(r.problems, isEmpty);
   });
+
+  // Kind homogeneity — added 2026-07-18; see the note below.
+  test('animated pack containing a static sticker fails', () {
+    final pack = packOf(3, isAnimated: true);
+    final stickers = [
+      stickerOf(400000, StickerKind.animated),
+      stickerOf(400000, StickerKind.animated),
+      stickerOf(50000, StickerKind.staticImage), // the intruder
+    ];
+    final r = v.validatePack(pack, stickers);
+    expect(r.ok, isFalse);
+    expect(r.problems.any((p) => p.contains('animated')), isTrue);
+  });
+
+  test('static pack containing an animated sticker fails', () {
+    final r = v.validatePack(packOf(3, isAnimated: false), [
+      stickerOf(50000, StickerKind.staticImage),
+      stickerOf(50000, StickerKind.staticImage),
+      stickerOf(400000, StickerKind.animated),
+    ]);
+    expect(r.ok, isFalse);
+  });
 }
 ```
 
+> **Kind homogeneity is a real WhatsApp rule and was missing from this task.** Packs must be
+> all-static or all-animated — `animated_sticker_pack` is a pack-level flag that also selects the
+> size ceiling. WhatsApp enforces this **independently of our code** (see `CLAUDE.md`), so the
+> validator must catch it before we fire the intent, or the user gets an opaque rejection.
+>
+> This validator is the **backstop, not the UX**. Per the 2026-07-18 decision, the Maker
+> (Task 13) auto-promotes a static sticker to animated (≥2 identical frames) when it joins an
+> animated pack, so a mixed pack should never reach here. Reaching this rule means promotion failed
+> or was skipped — a bug, not a user error.
+
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** using `WhatsAppSpec` (count 3–30; per-sticker size by kind; collect all problems, don't short-circuit).
+- [ ] **Step 3: Implement** using `WhatsAppSpec` (count 3–30; per-sticker size by kind; **every
+  sticker's `kind` must match the pack's `isAnimated`**; collect all problems, don't short-circuit).
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit & push** on `feat/validator`.
 
@@ -537,7 +583,38 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 
 - [ ] **Step 3: Run → FAIL.**
 - [ ] **Step 4: Implement `AnimatedEncoder`** with **progressive degradation** to hit 500 KB: pipeline = trim (≤10 s) → scale/pad to 512² → encode animated WebP at target fps/quality; if oversize, degrade in order **fps (15→12→10→8) → drop frames → quality → dimension-internal** until ≤ 500 KB, recording each choice in `QualityReport`. Never emit an oversize file — if the floor still exceeds 500 KB, throw `EncoderBudgetException` for the UI to surface.
+
+> **Do not budget as `500 KB ÷ frame count`.** Animated WebP uses **inter-frame compression** — after
+> the keyframe, each frame stores only the changed-pixel rectangle. Cost therefore scales with *visual
+> change*, not frame count: a static-background clip stays cheap at 15 fps, while a pan or scene-cut
+> blows the budget at 8 fps. Consequences for this task:
+> - Never assume dropping fps is the highest-leverage lever. **Measure**: encode, check bytes, then
+>   degrade. The ladder above is the order to *try*, not a formula to predict from.
+> - **Trimming duration beats degrading quality** for high-motion sources, and the user controls
+>   duration. Task 13's UI must surface the size/quality readout so they can shorten the clip rather
+>   than accept a mushy sticker. Most good animated stickers are 1.5–3 s loops, not the full 10 s.
+> - A scene cut mid-clip forces a new keyframe. If a source blows the budget, check for cuts before
+>   assuming the whole clip is too complex.
 - [ ] **Step 5: Run → PASS** on emulator.
+
+- [ ] **Step 5b: Implement static→animated promotion** *(added 2026-07-18 — see `CLAUDE.md`)*
+
+  Add `Future<EncodedSticker> promoteStatic(Uint8List staticWebp)`: re-encode a static image as an
+  animated WebP of **≥2 identical frames**, each ≥8 ms. Used when a static sticker joins an animated
+  pack, so the user never sees a mixed-kind error.
+
+  **A single frame does not work** — WhatsApp's validator tests `getFrameCount() <= 1`, not whether
+  an ANIM chunk exists, so a 1-frame file is rejected exactly like a static one. Two frames is the
+  floor; there is no minimum total duration.
+
+  Failing test first: promoting a static yields `kind == StickerKind.animated`, `report.frames >= 2`,
+  every frame duration ≥ `WhatsAppSpec.minFrameMs`, total ≤ `maxAnimationMs`, and size ≤
+  `maxAnimatedBytes` (note the ceiling is now 500 KB, not 100 KB — promotion *raises* the budget).
+
+  Verify on a device against WhatsApp's **closed-source** validator, which is stricter than the
+  published sample. **If it rejects the promoted sticker, fall back to pack-type-chosen-at-creation**
+  (Sticker.ly's model) and revisit Task 13's flow.
+
 - [ ] **Step 6: Commit & push** on `feat/encoder-animated`.
 
 ---
@@ -808,6 +885,25 @@ test('export blocks invalid pack', () async {
 
 - [ ] **Step 3: Run → FAIL.**
 - [ ] **Step 4: Implement** — validate first (Task 4); on pass, fire `com.whatsapp.intent.action.ENABLE_STICKER_PACK` with `sticker_pack_id`, `sticker_pack_authority`, `sticker_pack_name` via the MethodChannel; serve assets through the provider.
+
+> **Researched 2026-07-18 — three non-obvious API realities (details in `CLAUDE.md`):**
+> - **Do not set `avoid_cache`**, in either direction. WhatsApp is deprecating it (issue #1089) and
+>   ignoring it once broke installed packs at scale. If the sample provider we mirror carries it,
+>   strip the field.
+> - **Pack updates do not reliably refresh.** Bump `image_data_version` in `contents.json` on every
+>   mutation *and* surface an in-app hint telling the user to open WhatsApp's sticker manager. There
+>   is no notify API; WhatsApp polls, and issue #612 shows the bump alone is not sufficient. This is
+>   an acknowledged, unfixed WhatsApp defect — not something we can code around.
+> - **Treat a pack as a one-shot import.** WhatsApp stated they are moving stickers to storage that
+>   does not sync with the source app post-import. Do not design features assuming an installed pack
+>   stays in sync with our library.
+
+- [ ] **Step 4b: Verify the unverified** *(added — needs a physical device; see `CLAUDE.md`)*
+  With WhatsApp installed, test through our own provider: (a) does a **1- or 2-sticker pack** install,
+  or is the documented 3-minimum actually enforced? (b) does a static image encoded as a
+  **single-frame animated WebP** install inside an animated pack? Both are currently inferences, and
+  (b) determines whether Task 4's mixed-kind rule can be relaxed into a conversion path. Record the
+  answers in `CLAUDE.md`.
 - [ ] **Step 5: Run unit test → PASS.** Then on a device with WhatsApp: build a valid pack → tap Add → confirm the pack appears in WhatsApp.
 - [ ] **Step 6: Commit & push** on `feat/exporter`.
 
@@ -855,6 +951,21 @@ abstract class SharingService {
 - [ ] **Step 1: Write failing widget test** — pick (fake Source) → shows preview + fit-mode toggle + size/quality readout (from `QualityReport`) → tap Save → `LibraryStore.saveSticker` called once and async `TaggingService.tag` scheduled.
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement** the flow: source picker (gallery / camera / Giphy / **paste X-Twitter link**) → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share". The X-link entry shows a paste field, constructs an `XLinkSource(url)`, and surfaces a friendly error if extraction returns `null`.
+
+- [ ] **Step 3b: Add-to-pack silently promotes statics** *(added 2026-07-18 — see `CLAUDE.md`)*
+
+  When the user adds a **static** sticker to an **animated** pack, call
+  `AnimatedEncoder.promoteStatic` (Task 6 Step 5b) and add it with no dialog, no warning, no error.
+  The pack-kind constraint must be invisible.
+
+  Failing widget test first: selecting an animated pack for a static sticker results in
+  `LibraryStore.saveSticker` receiving a record with `kind == StickerKind.animated`, and **no error
+  widget is shown**.
+
+  Do **not** grey out incompatible packs or explain the constraint. Research into ~9,700 competitor
+  reviews found *zero* users who correctly diagnosed it — they blame paywalls and bugs. Apps that
+  accept the sticker then fail at export earn *"I wasted literally 20 mins"*. Promotion is the only
+  approach users praise.
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit & push** on `feat/maker-ui`.
 

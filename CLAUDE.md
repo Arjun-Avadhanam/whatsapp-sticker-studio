@@ -12,6 +12,37 @@
 - **Vision/tagging must be FREE** — on-device ML Kit default; free-tier hosted adapters only. No paid model.
 - **Standalone app.** Integrate ONLY via the official sticker `ContentProvider` + intent and the OS share sheet. No in-WhatsApp UI injection (ToS/ban risk).
 
+## WhatsApp API realities (researched 2026-07-18 — do not re-derive)
+
+**Two separate paths exist into WhatsApp's sticker tray. We use only the first.**
+1. **Third-party sticker API** (ours): `ContentProvider` + `ENABLE_STICKER_PACK` intent. The 3–30
+   stickers/pack and 1–10 packs limits apply *here*.
+2. **WhatsApp's own native sticker features** — sticker creator (~Mar 2024) and native custom packs
+   (globally rolled out ~17 Apr 2025, the pencil icon in the sticker tray). No minimum, no pack API.
+   When a user says "WhatsApp let me add one sticker to a new pack," this is what they used. It is
+   not available to us and is not a counter-example to the 3-sticker floor.
+
+**`avoid_cache`: do not set it, in either direction.** WhatsApp staff stated (issue #1089) they are
+deprecating the flag and moving stickers to storage permanent within WhatsApp "that does not rely on
+additional syncing with apps after initial user import." Ignoring it in 2.25.9.78 broke installed
+packs widely; devs fixed it by removing the field entirely. Strategic consequence: **post-import
+sync is going away** — treat a pack as a one-shot import.
+
+**Updating an installed pack is unreliable — design around it.** The only mechanism is bumping
+`image_data_version` in `contents.json`; there is **no push/notify API**, WhatsApp polls. Bumping it
+demonstrably does not always refresh the tray (issue #612, acknowledged by a WhatsApp engineer,
+closed without a fix; #644 open since 2020). **So: bump the version AND tell the user in-app to open
+WhatsApp's sticker manager.** Silently relying on the refresh reproduces the exact frustration that
+drives users to recreate packs.
+
+**Unverified, needs an on-device test when a phone is available:**
+- Is the 3-sticker minimum actually enforced at runtime? Every source found is a developer working
+  *around* it (apps reportedly pad packs with transparent stickers), never a statement of what
+  WhatsApp does when you try. Test a 1- and 2-sticker pack through our own provider.
+- Does WhatsApp accept a static image encoded as a **single-frame animated WebP** inside an animated
+  pack? If yes, it solves the mixed-kind problem *and* raises that sticker's budget from 100 KB to
+  500 KB. Do not build on this before testing it.
+
 ## Local dev setup (WSL/Ubuntu)
 - Flutter SDK lives at `~/flutter`. Non-interactive shells don't read `~/.bashrc`, so scripts must
   `export PATH="$HOME/flutter/bin:$PATH"` before calling `flutter`.

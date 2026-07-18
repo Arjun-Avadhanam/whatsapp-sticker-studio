@@ -232,7 +232,7 @@ class PackRecord {
 > test assert on whole records instead of field-by-field. Later tasks (3, 9, 10, 12) mutate records
 > **only** via `copyWith` — no cascade assignment anywhere.
 
-- [ ] **Step 1: Write the failing test** — `test/core/whatsapp_spec_test.dart`
+- [x] **Step 1: Write the failing test** — `test/core/whatsapp_spec_test.dart`
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -253,12 +253,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `flutter test test/core/whatsapp_spec_test.dart`
 Expected: FAIL — `whatsapp_spec.dart` not found.
 
-- [ ] **Step 3: Implement constants** — `lib/core/whatsapp_spec.dart`
+- [x] **Step 3: Implement constants** — `lib/core/whatsapp_spec.dart`
 
 ```dart
 class WhatsAppSpec {
@@ -276,9 +276,9 @@ class WhatsAppSpec {
 }
 ```
 
-- [ ] **Step 4: Implement `media.dart`** — enums + `MediaHandle` (see Interfaces block; `import 'dart:typed_data';`).
+- [x] **Step 4: Implement `media.dart`** — enums + `MediaHandle` (see Interfaces block; `import 'dart:typed_data';`).
 
-- [ ] **Step 5: Write failing test for `StickerRecord.searchBlob()`** — `test/models/sticker_record_test.dart`
+- [x] **Step 5: Write failing test for `StickerRecord.searchBlob()`** — `test/models/sticker_record_test.dart`
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -303,7 +303,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 5b: Write failing tests for value equality and `copyWith`** — same file:
+- [x] **Step 5b: Write failing tests for value equality and `copyWith`** — same file:
 
 ```dart
 test('records with identical field values are equal', () {
@@ -322,18 +322,31 @@ test('copyWith changes only the named field', () {
 });
 ```
 
-- [ ] **Step 6: Implement `StickerRecord` and `PackRecord`** — all fields `final`; `searchBlob()`
+- [x] **Step 6: Implement `StickerRecord` and `PackRecord`** — all fields `final`; `searchBlob()`
   returns `[autoTags, manualName, manualTags, notes].join(' ')` with nulls skipped; `copyWith()` per
-  the Interfaces block; hand-written `==`/`hashCode` using `DeepCollectionEquality` for the list
-  fields (a plain `==` on `List` compares identity and would make Step 5b's first test fail).
-  Declare `TaggingStatus` and `StickerSource` in `sticker_record.dart`.
+  the Interfaces block; hand-written `==`/`hashCode` for the list fields (a plain `==` on `List`
+  compares identity and would make Step 5b's first test fail). Declare `TaggingStatus` and
+  `StickerSource` in `sticker_record.dart`.
 
-- [ ] **Step 7: Run model tests**
+  *(Actual: used **`listEquals` from `package:flutter/foundation.dart`** rather than the planned
+  `DeepCollectionEquality` — identical behaviour for our flat `List<String>` fields, and it is
+  already a declared dependency, so no new package. Hashing uses `Object.hashAll`, since
+  `List.hashCode` is identity-based too.*
+
+  *Also unplanned: `copyWith`'s **nullable** params are typed `Object?` defaulting to a private
+  `_unset` sentinel. The naive `String?` form cannot distinguish `copyWith()` from
+  `copyWith(manualName: null)` — both arrive as `null` — making it impossible to ever clear
+  `packId`, `manualName` or `notes`. Clearing `packId` is how a sticker leaves a pack, so this is
+  load-bearing, not academic. Non-nullable params keep the plain `?? this.x` form.)*
+
+- [x] **Step 7: Run model tests**
 
 Run: `flutter test test/models test/core`
-Expected: PASS.
+Expected: PASS. *(Actual: 20/20 pass across the whole suite; `dart format` and `flutter analyze`
+clean. `dart format` did rewrite `test/core/media_test.dart` — CI would have failed on it, so run
+the format check locally before pushing, not just `flutter test`.)*
 
-- [ ] **Step 8: Commit & push**
+- [x] **Step 8: Commit & push**
 
 ```bash
 git checkout -b feat/domain-models
@@ -537,6 +550,18 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 
 - [ ] **Step 3: Run → FAIL.**
 - [ ] **Step 4: Implement `AnimatedEncoder`** with **progressive degradation** to hit 500 KB: pipeline = trim (≤10 s) → scale/pad to 512² → encode animated WebP at target fps/quality; if oversize, degrade in order **fps (15→12→10→8) → drop frames → quality → dimension-internal** until ≤ 500 KB, recording each choice in `QualityReport`. Never emit an oversize file — if the floor still exceeds 500 KB, throw `EncoderBudgetException` for the UI to surface.
+
+> **Do not budget as `500 KB ÷ frame count`.** Animated WebP uses **inter-frame compression** — after
+> the keyframe, each frame stores only the changed-pixel rectangle. Cost therefore scales with *visual
+> change*, not frame count: a static-background clip stays cheap at 15 fps, while a pan or scene-cut
+> blows the budget at 8 fps. Consequences for this task:
+> - Never assume dropping fps is the highest-leverage lever. **Measure**: encode, check bytes, then
+>   degrade. The ladder above is the order to *try*, not a formula to predict from.
+> - **Trimming duration beats degrading quality** for high-motion sources, and the user controls
+>   duration. Task 13's UI must surface the size/quality readout so they can shorten the clip rather
+>   than accept a mushy sticker. Most good animated stickers are 1.5–3 s loops, not the full 10 s.
+> - A scene cut mid-clip forces a new keyframe. If a source blows the budget, check for cuts before
+>   assuming the whole clip is too complex.
 - [ ] **Step 5: Run → PASS** on emulator.
 - [ ] **Step 6: Commit & push** on `feat/encoder-animated`.
 
@@ -808,6 +833,25 @@ test('export blocks invalid pack', () async {
 
 - [ ] **Step 3: Run → FAIL.**
 - [ ] **Step 4: Implement** — validate first (Task 4); on pass, fire `com.whatsapp.intent.action.ENABLE_STICKER_PACK` with `sticker_pack_id`, `sticker_pack_authority`, `sticker_pack_name` via the MethodChannel; serve assets through the provider.
+
+> **Researched 2026-07-18 — three non-obvious API realities (details in `CLAUDE.md`):**
+> - **Do not set `avoid_cache`**, in either direction. WhatsApp is deprecating it (issue #1089) and
+>   ignoring it once broke installed packs at scale. If the sample provider we mirror carries it,
+>   strip the field.
+> - **Pack updates do not reliably refresh.** Bump `image_data_version` in `contents.json` on every
+>   mutation *and* surface an in-app hint telling the user to open WhatsApp's sticker manager. There
+>   is no notify API; WhatsApp polls, and issue #612 shows the bump alone is not sufficient. This is
+>   an acknowledged, unfixed WhatsApp defect — not something we can code around.
+> - **Treat a pack as a one-shot import.** WhatsApp stated they are moving stickers to storage that
+>   does not sync with the source app post-import. Do not design features assuming an installed pack
+>   stays in sync with our library.
+
+- [ ] **Step 4b: Verify the unverified** *(added — needs a physical device; see `CLAUDE.md`)*
+  With WhatsApp installed, test through our own provider: (a) does a **1- or 2-sticker pack** install,
+  or is the documented 3-minimum actually enforced? (b) does a static image encoded as a
+  **single-frame animated WebP** install inside an animated pack? Both are currently inferences, and
+  (b) determines whether Task 4's mixed-kind rule can be relaxed into a conversion path. Record the
+  answers in `CLAUDE.md`.
 - [ ] **Step 5: Run unit test → PASS.** Then on a device with WhatsApp: build a valid pack → tap Add → confirm the pack appears in WhatsApp.
 - [ ] **Step 6: Commit & push** on `feat/exporter`.
 

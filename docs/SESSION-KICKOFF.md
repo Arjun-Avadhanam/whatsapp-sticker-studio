@@ -35,19 +35,25 @@ show me the output.
 
 ## Fast facts for whoever picks this up
 
-**Where things stand (2026-07-18):** Tasks 1 and 2 complete and verified — 20/20 tests, analyze
-clean, format clean, debug APK builds. Next is **Task 3 — drift/SQLite library store**, branch
-`feat/library-store`. Pure Dart with an in-memory DB, no device needed.
+**Where things stand (2026-07-24):** Tasks 1–3 complete, merged to `main`, CI green — 35/35 tests,
+analyze clean, format clean, debug APK builds (with drift's native SQLite). Next is **Task 4 —
+sticker/pack validator**, branch `feat/validator`. Pure Dart, no device needed. Note Task 4 now
+carries a **kind-homogeneity rule** (added 2026-07-18): every sticker's `kind` must match the pack's
+`isAnimated`, as a backstop to the silent-promotion UX.
 
-**Task 2 shipped** `WhatsAppSpec`, `media.dart` (MediaKind/StickerKind/FitMode/MediaHandle) and
-immutable `StickerRecord`/`PackRecord`. The three agreed deviations (enums, `final` + `copyWith`,
-value equality) are folded into the spec and plan — read those as written, they are the source of
-truth. Two implementation details worth knowing before touching the records:
-- List fields compare via `listEquals` and hash via `Object.hashAll`. `List`'s own `==`/`hashCode`
-  are identity-based, so the obvious implementation makes a record unequal to its own copy.
-- `copyWith`'s **nullable** params are `Object?` defaulting to a private `_unset` sentinel. The
-  naive `String?` form can't tell "not supplied" from "supplied null", so fields could never be
-  cleared — and clearing `packId` is how a sticker leaves a pack.
+**Task 3 shipped** `lib/library/database.dart` (drift Stickers/Packs, `StringListConverter` for list
+fields, `textEnum` for enums), the **committed** generated `database.g.dart` (CI does not run
+build_runner), and `LibraryStore`/`DriftLibraryStore`. Two reusable gotchas it surfaced:
+- **drift upsert + null:** pass an explicit `Companion` with `Value(null)` to
+  `insertOnConflictUpdate`, not a data-class row — a data class serialises nulls as *absent*, so an
+  upsert leaves a column unchanged and a field can never be cleared.
+- **Dart optional-param defaults** resolve from the *static type*. A sentinel default (`_unset` for
+  nullable `copyWith`/`updateMetadata` params) must be on BOTH the abstract interface and the impl,
+  or "omitted" and "passed null" collapse for callers holding the interface type.
+
+**Task 2 shipped** `WhatsAppSpec`, `media.dart` and immutable `StickerRecord`/`PackRecord` (enums,
+`final` + `copyWith`, value equality — folded into spec and plan as source of truth). Records use
+`listEquals`/`Object.hashAll` for list fields (`List`'s own `==` is identity).
 
 **Read the "WhatsApp API realities" section in `CLAUDE.md` before Tasks 4, 11 or 13.** Researched
 2026-07-18: WhatsApp validates independently of our code (you can't delete your way around a rule),

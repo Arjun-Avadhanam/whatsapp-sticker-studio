@@ -373,7 +373,10 @@ abstract class LibraryStore {
   Future<void> saveSticker(StickerRecord r);
   Future<StickerRecord?> getSticker(String id);
   Future<List<StickerRecord>> allStickers();
-  Future<void> updateMetadata(String id, {String? manualName, List<String>? manualTags, String? notes});
+  // manualName/notes are Object? with an _unset sentinel default (as StickerRecord.copyWith),
+  // so `notes: null` clears the note and an omitted arg leaves it untouched — a plain String?
+  // cannot tell those apart. manualTags has no null state (empty list = "no tags").
+  Future<void> updateMetadata(String id, {Object? manualName, List<String>? manualTags, Object? notes});
   Future<void> setAutoTags(String id, List<String> tags);      // sets taggingStatus = TaggingStatus.done
   Future<void> incrementUsage(String id);
   Future<void> savePack(PackRecord p);
@@ -632,10 +635,25 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 - Consumes: `MediaHandle`, `MediaKind`.
 - Produces: `abstract class Source { Future<MediaHandle?> pick(); }` and the three implementations. `pick()` returns `null` on user-cancel.
 
+> **Share-into-app is a first-class entry point (see spec §4.1), not a minor source.** Registering as
+> an OS share target lets a shared screenshot / screen recording / gallery item open straight into the
+> Maker — the same "Share → …" gesture users know, and **API-independent** (it does not touch the
+> WhatsApp sticker API, so it survives any change to that API). Treat it as a headline feature.
+
 - [ ] **Step 1: Write the contract test** — `FakeSource` returns a `MediaHandle`; assert non-null bytes and a valid `MediaKind`; a cancelling source returns `null`.
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** `GallerySource`/`CameraSource` over `image_picker`, `ShareInSource` over `receive_sharing_intent`; map picked files → `MediaHandle` (infer `MediaKind` from mime/extension).
-- [ ] **Step 4: Run contract test → PASS.** (Real picker flows verified manually on device.)
+- [ ] **Step 3: Implement** `GallerySource`/`CameraSource` over `image_picker`; map picked files → `MediaHandle` (infer `MediaKind` from mime/extension). `pick()` returns `null` on cancel.
+- [ ] **Step 3b: Implement the share-in target** — `ShareInSource` over `receive_sharing_intent`:
+  - Android manifest: add `<intent-filter>` for `ACTION_SEND` and `ACTION_SEND_MULTIPLE` on
+    `image/*` and `video/*` to the launcher activity.
+  - Handle **both** delivery cases the package exposes: the **cold-start** stream
+    (`getInitialMedia`, app launched *by* the share) and the **warm** stream (`getMediaStream`, app
+    already running). Missing the warm case drops shares silently when the app is backgrounded.
+  - Map the shared file(s) → `MediaHandle`, inferring `MediaKind` from mime/extension.
+  - **iOS Share Extension is deferred with iOS** (project is Android-only). Note this in `CLAUDE.md`
+    so it is a known gap, not a forgotten one.
+- [ ] **Step 4: Run contract test → PASS.** (Real picker + real share-sheet flows verified manually
+  on device — the share intent-filters and cold/warm streams can only be exercised on a phone.)
 - [ ] **Step 5: Commit & push** on `feat/sources`.
 
 ---

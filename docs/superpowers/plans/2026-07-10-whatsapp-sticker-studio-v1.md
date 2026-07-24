@@ -385,8 +385,12 @@ abstract class LibraryStore {
 }
 ```
 
-- [ ] **Step 1: Add dependencies** — edit `pubspec.yaml`, then `flutter pub get`.
-- [ ] **Step 2: Write the failing test** — round-trip a sticker, update metadata, increment usage:
+- [x] **Step 1: Add dependencies** — edit `pubspec.yaml`, then `flutter pub get`. *(Actual: `drift`
+  2.28, `sqlite3_flutter_libs`, `path_provider`, `path`; dev `drift_dev`, `build_runner`.)*
+- [x] **Step 2: Write the failing test** — round-trip a sticker, update metadata, increment usage.
+  *(Actual: went broader than the sketch below — 15 tests covering all 9 methods plus round-trip
+  fidelity of enums and list fields, and the omitted-vs-null-vs-set cases of `updateMetadata`. Two of
+  those caught real bugs; see Steps 5–6.)*
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -413,16 +417,30 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: Run it to see it fail** — `flutter test test/library` → FAIL (no `database.dart`).
-- [ ] **Step 4: Define drift tables** in `database.dart` (Stickers, Packs; list columns stored as
-  JSON text via a `TypeConverter`; `taggingStatus`/`source` stored via drift's `textEnum`, which persists
-  the enum **name** — not `intEnum`, whose index would silently remap existing rows if the enum is
-  ever reordered),
-  run `dart run build_runner build --delete-conflicting-outputs`.
-- [ ] **Step 5: Implement `DriftLibraryStore`** mapping rows ↔ records. Mutating methods
+- [x] **Step 3: Run it to see it fail** — `flutter test test/library` → FAIL (no `database.dart`).
+- [x] **Step 4: Define drift tables** in `database.dart` (Stickers, Packs; list columns stored as
+  JSON text via a `StringListConverter` `TypeConverter`; `kind`/`source`/`taggingStatus` via drift's
+  `textEnum`, which persists the enum **name** — not `intEnum`, whose index would silently remap
+  existing rows if the enum is ever reordered), then `dart run build_runner build`. *(Actual: the
+  `--delete-conflicting-outputs` flag is now a no-op — this build_runner deletes stale outputs by
+  default. **`database.g.dart` is committed** — CI does not run the generator, and it is clean under
+  `dart format` and `flutter analyze` as generated.)*
+- [x] **Step 5: Implement `DriftLibraryStore`** mapping rows ↔ records. Mutating methods
   (`updateMetadata`, `setAutoTags`, `incrementUsage`) read the row, apply `copyWith`, and write back
   — records are immutable, so nothing is mutated in place.
-- [ ] **Step 6: Run tests** — `flutter test test/library` → PASS.
+
+  **Two non-obvious bugs the tests caught, both about clearing a field to null:**
+  1. **Interface/impl default mismatch.** The `_unset` sentinel default for `updateMetadata`'s
+     nullable params must be declared on **both** the abstract `LibraryStore` and the concrete class.
+     Dart resolves an optional param's default from the *statically-typed* target; a caller holding a
+     `LibraryStore` uses the interface's default. If only the impl had `_unset`, "omitted" and
+     "passed null" collapsed to the same value and clearing was impossible.
+  2. **drift `nullToAbsent` on upsert.** `saveSticker` must build an explicit **Companion**
+     (`StickersCompanion` with `Value(null)`), not pass a plain data-class row, to
+     `insertOnConflictUpdate`. A data class serialises nulls as *absent*, so an upsert over an
+     existing row leaves the old value instead of clearing it — a note could never be deleted.
+- [x] **Step 6: Run tests** — `flutter test test/library` → PASS *(15/15; full suite 35/35, analyze +
+  format clean, debug APK builds with drift's native SQLite)*.
 - [ ] **Step 7: Commit & push** on `feat/library-store`.
 
 ---

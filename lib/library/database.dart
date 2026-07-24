@@ -1,0 +1,78 @@
+import 'dart:convert';
+
+import 'package:drift/drift.dart';
+
+import '../core/media.dart';
+import '../models/sticker_record.dart';
+
+// drift generates the private base class `_$AppDatabase` (and all the row/
+// companion classes) into this part file. It does not exist until
+// `dart run build_runner build` has been run, and IS committed to git because
+// CI does not run the generator.
+part 'database.g.dart';
+
+/// Stores a `List<String>` as a JSON array in a single text column. drift has
+/// no native list column, so every list field routes through this. `const` so
+/// the same instance is reused for every column that references it.
+class StringListConverter extends TypeConverter<List<String>, String> {
+  const StringListConverter();
+
+  @override
+  List<String> fromSql(String fromDb) =>
+      (json.decode(fromDb) as List).cast<String>();
+
+  @override
+  String toSql(List<String> value) => json.encode(value);
+}
+
+/// Table backing [StickerRecord]. Column getters are declared, not called —
+/// drift reads them via reflection-like code generation, so the `()()` is the
+/// column-builder pattern (build the column, then invoke to finalise).
+class Stickers extends Table {
+  TextColumn get id => text()();
+  TextColumn get filePath => text()();
+  TextColumn get thumbnailPath => text()();
+
+  // textEnum stores the enum's *name* ("animated"), not its index. Reordering
+  // the enum later cannot silently remap existing rows the way an int index
+  // would — the tradeoff being that renaming an enum value is a breaking change.
+  TextColumn get kind => textEnum<StickerKind>()();
+
+  TextColumn get packId => text().nullable()();
+  TextColumn get autoTags => text().map(const StringListConverter())();
+  TextColumn get manualName => text().nullable()();
+  TextColumn get manualTags => text().map(const StringListConverter())();
+  TextColumn get notes => text().nullable()();
+  TextColumn get source => textEnum<StickerSource>()();
+  DateTimeColumn get createdAt => dateTime()();
+  IntColumn get usageCount => integer()();
+  IntColumn get sizeBytes => integer()();
+  TextColumn get taggingStatus => textEnum<TaggingStatus>()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// Table backing [PackRecord].
+class Packs extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  TextColumn get trayIconPath => text()();
+  BoolColumn get isAnimated => boolean()();
+  TextColumn get stickerIds => text().map(const StringListConverter())();
+  DateTimeColumn get createdAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+/// The database. Takes an explicit [QueryExecutor] so tests can inject
+/// `NativeDatabase.memory()` and production can inject an on-disk connection —
+/// the store never hard-codes where the data lives.
+@DriftDatabase(tables: [Stickers, Packs])
+class AppDatabase extends _$AppDatabase {
+  AppDatabase(super.e);
+
+  @override
+  int get schemaVersion => 1;
+}

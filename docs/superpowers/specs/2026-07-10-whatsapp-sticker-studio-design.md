@@ -38,6 +38,7 @@ These are verified facts (sources: `github.com/WhatsApp/stickers`, WhatsApp ToS,
   - Pro Maker: image / GIF / video → compliant 512×512 WebP, up to full 10 s, **smart-fit** (pad / subject-aware) instead of forced center-crop, size-budgeted quality encoding, **no ads**.
   - **Giphy search as a Maker source**: search Giphy → pick → convert → save → send.
   - **X/Twitter link as a Maker source**: paste a tweet link → a minimal self-hosted extractor (yt-dlp/cobalt) resolves the MP4 → convert → save → send. (Solves the "can't download a Twitter GIF without an online converter" pain.)
+  - **Share-into-app entry point**: registered as an OS share target, so a shared screenshot / screen recording / gallery item opens straight into the Maker — the same "Share → …" gesture users already know. API-independent (OS share sheet, not the WhatsApp sticker API). Android in v1; iOS Share Extension deferred with iOS.
 - **Pillar 2 — Better organisation**
   - Auto-tagging (free, on-device vision) of every made sticker.
   - Optional **manual metadata** (name, pack, tags, notes).
@@ -84,6 +85,18 @@ Five isolated modules, each with one job and a clean interface, independently te
 
 ### 4.1 Sources (`Source` interface)
 Abstracts where input media comes from. **v1 sources:** gallery pick, camera, share-into-app, **Giphy search**, **X/Twitter link**. Each is *just another Source*, so all input paths are fully in v1. Interface: `Source.pick() → MediaHandle` (bytes/URI + kind: image | gif | video). New providers (custom corpus, other APIs) drop in later without Maker changes.
+
+**Share-into-app is a first-class entry point, not just a source.** By registering as an OS
+share target (Android `ACTION_SEND`/`ACTION_SEND_MULTIPLE` on `image/*` and `video/*`), the app
+appears directly in the system share sheet. The intended flow: a user takes a screenshot or screen
+recording, or opens a gallery item, taps the OS **Share**, and picks **WhatsApp Sticker Studio** —
+which opens the Maker pre-loaded with that media, exactly mirroring the familiar "Share → WhatsApp"
+gesture. This meets content where it already is and is often a *better* front door than the in-app
+pickers. It is also **API-independent**: it uses the OS share sheet, not the WhatsApp sticker API,
+so it survives any change to that API (see §10). Note: apps cannot hook the *moment* a screenshot is
+captured — the realistic mechanism is the share target above, driven by the user's Share tap.
+**iOS parity requires a Share Extension** (separate app-extension target + App Group), which is
+deferred with the rest of iOS (§3, out of scope for v1) — v1 ships the Android share target.
 
 The **X-link source** posts the pasted URL to a minimal self-hosted extraction endpoint (yt-dlp or cobalt behind a small FastAPI service), receives the resolved MP4 URL, downloads it, and returns a `MediaHandle` of kind `video`. Keeping extraction server-side means X-format breakage is fixed by updating the extractor, not by shipping a new app build.
 

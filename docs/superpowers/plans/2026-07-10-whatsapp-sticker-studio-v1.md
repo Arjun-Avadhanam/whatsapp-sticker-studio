@@ -373,7 +373,10 @@ abstract class LibraryStore {
   Future<void> saveSticker(StickerRecord r);
   Future<StickerRecord?> getSticker(String id);
   Future<List<StickerRecord>> allStickers();
-  Future<void> updateMetadata(String id, {String? manualName, List<String>? manualTags, String? notes});
+  // manualName/notes are Object? with an _unset sentinel default (as StickerRecord.copyWith),
+  // so `notes: null` clears the note and an omitted arg leaves it untouched — a plain String?
+  // cannot tell those apart. manualTags has no null state (empty list = "no tags").
+  Future<void> updateMetadata(String id, {Object? manualName, List<String>? manualTags, Object? notes});
   Future<void> setAutoTags(String id, List<String> tags);      // sets taggingStatus = TaggingStatus.done
   Future<void> incrementUsage(String id);
   Future<void> savePack(PackRecord p);
@@ -382,8 +385,12 @@ abstract class LibraryStore {
 }
 ```
 
-- [ ] **Step 1: Add dependencies** — edit `pubspec.yaml`, then `flutter pub get`.
-- [ ] **Step 2: Write the failing test** — round-trip a sticker, update metadata, increment usage:
+- [x] **Step 1: Add dependencies** — edit `pubspec.yaml`, then `flutter pub get`. *(Actual: `drift`
+  2.28, `sqlite3_flutter_libs`, `path_provider`, `path`; dev `drift_dev`, `build_runner`.)*
+- [x] **Step 2: Write the failing test** — round-trip a sticker, update metadata, increment usage.
+  *(Actual: went broader than the sketch below — 15 tests covering all 9 methods plus round-trip
+  fidelity of enums and list fields, and the omitted-vs-null-vs-set cases of `updateMetadata`. Two of
+  those caught real bugs; see Steps 5–6.)*
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -410,16 +417,30 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: Run it to see it fail** — `flutter test test/library` → FAIL (no `database.dart`).
-- [ ] **Step 4: Define drift tables** in `database.dart` (Stickers, Packs; list columns stored as
-  JSON text via a `TypeConverter`; `taggingStatus`/`source` stored via drift's `textEnum`, which persists
-  the enum **name** — not `intEnum`, whose index would silently remap existing rows if the enum is
-  ever reordered),
-  run `dart run build_runner build --delete-conflicting-outputs`.
-- [ ] **Step 5: Implement `DriftLibraryStore`** mapping rows ↔ records. Mutating methods
+- [x] **Step 3: Run it to see it fail** — `flutter test test/library` → FAIL (no `database.dart`).
+- [x] **Step 4: Define drift tables** in `database.dart` (Stickers, Packs; list columns stored as
+  JSON text via a `StringListConverter` `TypeConverter`; `kind`/`source`/`taggingStatus` via drift's
+  `textEnum`, which persists the enum **name** — not `intEnum`, whose index would silently remap
+  existing rows if the enum is ever reordered), then `dart run build_runner build`. *(Actual: the
+  `--delete-conflicting-outputs` flag is now a no-op — this build_runner deletes stale outputs by
+  default. **`database.g.dart` is committed** — CI does not run the generator, and it is clean under
+  `dart format` and `flutter analyze` as generated.)*
+- [x] **Step 5: Implement `DriftLibraryStore`** mapping rows ↔ records. Mutating methods
   (`updateMetadata`, `setAutoTags`, `incrementUsage`) read the row, apply `copyWith`, and write back
   — records are immutable, so nothing is mutated in place.
-- [ ] **Step 6: Run tests** — `flutter test test/library` → PASS.
+
+  **Two non-obvious bugs the tests caught, both about clearing a field to null:**
+  1. **Interface/impl default mismatch.** The `_unset` sentinel default for `updateMetadata`'s
+     nullable params must be declared on **both** the abstract `LibraryStore` and the concrete class.
+     Dart resolves an optional param's default from the *statically-typed* target; a caller holding a
+     `LibraryStore` uses the interface's default. If only the impl had `_unset`, "omitted" and
+     "passed null" collapsed to the same value and clearing was impossible.
+  2. **drift `nullToAbsent` on upsert.** `saveSticker` must build an explicit **Companion**
+     (`StickersCompanion` with `Value(null)`), not pass a plain data-class row, to
+     `insertOnConflictUpdate`. A data class serialises nulls as *absent*, so an upsert over an
+     existing row leaves the old value instead of clearing it — a note could never be deleted.
+- [x] **Step 6: Run tests** — `flutter test test/library` → PASS *(15/15; full suite 35/35, analyze +
+  format clean, debug APK builds with drift's native SQLite)*.
 - [ ] **Step 7: Commit & push** on `feat/library-store`.
 
 ---
@@ -632,10 +653,25 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 - Consumes: `MediaHandle`, `MediaKind`.
 - Produces: `abstract class Source { Future<MediaHandle?> pick(); }` and the three implementations. `pick()` returns `null` on user-cancel.
 
+> **Share-into-app is a first-class entry point (see spec §4.1), not a minor source.** Registering as
+> an OS share target lets a shared screenshot / screen recording / gallery item open straight into the
+> Maker — the same "Share → …" gesture users know, and **API-independent** (it does not touch the
+> WhatsApp sticker API, so it survives any change to that API). Treat it as a headline feature.
+
 - [ ] **Step 1: Write the contract test** — `FakeSource` returns a `MediaHandle`; assert non-null bytes and a valid `MediaKind`; a cancelling source returns `null`.
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** `GallerySource`/`CameraSource` over `image_picker`, `ShareInSource` over `receive_sharing_intent`; map picked files → `MediaHandle` (infer `MediaKind` from mime/extension).
-- [ ] **Step 4: Run contract test → PASS.** (Real picker flows verified manually on device.)
+- [ ] **Step 3: Implement** `GallerySource`/`CameraSource` over `image_picker`; map picked files → `MediaHandle` (infer `MediaKind` from mime/extension). `pick()` returns `null` on cancel.
+- [ ] **Step 3b: Implement the share-in target** — `ShareInSource` over `receive_sharing_intent`:
+  - Android manifest: add `<intent-filter>` for `ACTION_SEND` and `ACTION_SEND_MULTIPLE` on
+    `image/*` and `video/*` to the launcher activity.
+  - Handle **both** delivery cases the package exposes: the **cold-start** stream
+    (`getInitialMedia`, app launched *by* the share) and the **warm** stream (`getMediaStream`, app
+    already running). Missing the warm case drops shares silently when the app is backgrounded.
+  - Map the shared file(s) → `MediaHandle`, inferring `MediaKind` from mime/extension.
+  - **iOS Share Extension is deferred with iOS** (project is Android-only). Note this in `CLAUDE.md`
+    so it is a known gap, not a forgotten one.
+- [ ] **Step 4: Run contract test → PASS.** (Real picker + real share-sheet flows verified manually
+  on device — the share intent-filters and cold/warm streams can only be exercised on a phone.)
 - [ ] **Step 5: Commit & push** on `feat/sources`.
 
 ---

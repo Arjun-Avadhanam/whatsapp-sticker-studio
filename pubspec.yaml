@@ -41,6 +41,11 @@ dependencies:
   path_provider: ^2.1.5          # locates the on-device DB directory
   path: ^1.9.1
 
+  # Encoder geometry (Task 5): decode + fit to 512². Decode/resize/crop only —
+  # this package canNOT encode WebP, so the WebP byte-encode is a separate
+  # native step behind the WebpEncoder interface (device-verified with Task 6).
+  image: ^4.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -571,41 +571,56 @@ test('static pack containing an animated sticker fails', () async {
 
 **Branch:** `feat/encoder-static`
 
+> **Reshaped 2026-07-24 — the `image` package cannot encode WebP** (confirmed in its docs: decode
+> only). Real WebP byte-encoding needs native libwebp, which only runs on a device — so Task 5 splits
+> into a **pure-Dart geometry half (built + unit-tested now)** and a **native WebP-encode half behind
+> an injected `WebpEncoder` interface (device-verified with Task 6)**. `StaticEncoder` does
+> decode→fit→512²-bitmap, then delegates the bytes to a `WebpEncoder`: faked in tests, real on device.
+
 **Files:**
-- Create: `lib/encoder/encoder.dart` (interface + params), `lib/encoder/static_encoder.dart`
-- Modify: `pubspec.yaml` (add `image` package for decode/resize)
-- Test: `test/encoder/static_encoder_test.dart` (uses a real bundled test image asset)
+- Create: `lib/encoder/encoder.dart` (interface + params + `EncoderException`),
+  `lib/encoder/webp_encoder.dart` (`WebpEncoder` interface + `WebpEncodeResult`),
+  `lib/encoder/static_encoder.dart`
+- Modify: `pubspec.yaml` (add `image` — decode/resize/crop only; it does **not** encode WebP)
+- Test: `test/encoder/static_encoder_test.dart` (geometry, against a `FakeWebpEncoder`; fixtures
+  generated in-test with `image` so no binary assets are committed)
 
 **Interfaces:**
-- Consumes: `MediaHandle`, `FitMode`, `WhatsAppSpec`, `StickerKind`.
+- Consumes: `MediaHandle`, `FitMode`, `WhatsAppSpec`, `StickerKind`, `WebpEncoder`.
 - Produces:
 ```dart
 class EncodeParams { final FitMode fitMode; final Duration? trim; const EncodeParams({this.fitMode = FitMode.pad, this.trim}); }
 class QualityReport { final int fps; final int frames; final int quality; final int sizeBytes; }
 class EncodedSticker { final Uint8List webpBytes; final StickerKind kind; final int width; final int height; final int sizeBytes; final QualityReport report; }
 abstract class Encoder { Future<EncodedSticker> encode(MediaHandle input, EncodeParams params); }
+
+class WebpEncodeResult { final Uint8List bytes; final int quality; }
+abstract class WebpEncoder {
+  // Encode a width×height RGBA bitmap to WebP under maxBytes, stepping quality down as needed.
+  Future<WebpEncodeResult> encode(Uint8List rgba, {required int width, required int height, required int maxBytes});
+}
 ```
 
-- [ ] **Step 1: Add a 1024×768 test JPEG** to `test/fixtures/landscape.jpg`.
-- [ ] **Step 2: Write failing test** — output is exactly 512×512 WebP and ≤ 100 KB:
-
-```dart
-test('static encode → 512x512 webp under 100KB', () async {
-  final bytes = await File('test/fixtures/landscape.jpg').readAsBytes();
-  final out = await StaticEncoder().encode(
-    MediaHandle(bytes: bytes, kind: MediaKind.image),
-    const EncodeParams(fitMode: FitMode.pad));
-  expect(out.width, 512);
-  expect(out.height, 512);
-  expect(out.sizeBytes, lessThanOrEqualTo(102400));
-  expect(out.kind, StickerKind.staticImage);
-});
-```
-
-- [ ] **Step 3: Run → FAIL.**
-- [ ] **Step 4: Implement `StaticEncoder`.** Decode with `image`; apply `FitMode` (pad = letterbox onto transparent 512² canvas; contain = scale-to-fit; smartCrop = center-crop to square then resize — subject-aware detection deferred to v1.1). Encode WebP; if > 100 KB, step quality down (e.g., 100→90→…→50) until under ceiling; populate `QualityReport`.
-- [ ] **Step 5: Run → PASS.** Also add a portrait fixture test to confirm padding keeps aspect ratio (no stretch).
-- [ ] **Step 6: Commit & push** on `feat/encoder-static`.
+- [x] **Step 1: Write failing geometry tests** — `test/encoder/static_encoder_test.dart`, against a
+  `FakeWebpEncoder` that records the RGBA/dims/maxBytes it receives and returns canned bytes+quality.
+  Fixtures generated in-test (`img.Image` filled solid, `encodePng`). Cover:
+  - a landscape input → `EncodedSticker` is 512×512, `kind == staticImage`, `report.frames == 1`;
+  - `pad` on a portrait → the fitted bitmap has **transparent side bars and an opaque centre** (no
+    stretch), verified by reading alpha out of the RGBA the fake captured;
+  - `smartCrop` on a portrait → the frame is **fully opaque** (cropped to fill, no padding);
+  - `encode` delegates with `maxBytes == WhatsAppSpec.maxStaticBytes`, and passes the encoder's
+    `bytes`/`quality` through to `EncodedSticker`/`QualityReport`;
+  - undecodable bytes → throws `EncoderException`.
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Implement `Encoder` types, `WebpEncoder` interface, and `StaticEncoder`.** Decode with
+  `image`; `_fit` switches exhaustively over `FitMode` — `pad`/`contain` letterbox onto a transparent
+  512² canvas via `compositeImage(center: true)`; `smartCrop` centre-crops to square then resizes
+  (subject-aware detection deferred to v1.1). Extract RGBA and delegate to the injected `WebpEncoder`.
+- [x] **Step 4: Run → PASS** (pure Dart, no device).
+- [x] **Step 5: Commit & push** the device-free half on `feat/encoder-static`.
+- [ ] **Step 5b (device session): implement the real `WebpEncoder`** over libwebp/`ffmpeg_kit` (pairs
+  with Task 6), stepping quality 100→90→…→50 until ≤ 100 KB. Device-verify: real photo → genuine
+  512×512 WebP ≤ 100 KB, confirmed by the `WebpMediaProbe` from Task 4.
 
 ---
 

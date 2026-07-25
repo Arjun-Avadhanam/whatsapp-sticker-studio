@@ -450,67 +450,93 @@ void main() {
 **Branch:** `feat/validator`
 
 **Files:**
-- Create: `lib/export/sticker_validator.dart`
-- Test: `test/export/sticker_validator_test.dart`
+- Create: `lib/export/media_probe.dart` (`MediaProbe` interface + `ProbeResult`), `lib/export/webp_media_probe.dart` (real WebP-header reader), `lib/export/sticker_validator.dart`
+- Test: `test/export/sticker_validator_test.dart` (against a `FakeMediaProbe`), `test/export/webp_media_probe_test.dart` (real WebP fixtures)
 
 **Interfaces:**
-- Consumes: `WhatsAppSpec`, `PackRecord`, `StickerRecord`.
+- Consumes: `WhatsAppSpec`, `PackRecord`, `StickerRecord`, `MediaProbe`.
 - Produces:
 ```dart
+class ProbeResult { final int width; final int height; final String format; // 'webp', 'png', ...
+  const ProbeResult({required this.width, required this.height, required this.format}); }
+abstract class MediaProbe { Future<ProbeResult> probe(String filePath); }
+
 class ValidationResult { final bool ok; final List<String> problems;
   const ValidationResult(this.ok, this.problems); }
 class StickerValidator {
-  ValidationResult validatePack(PackRecord pack, List<StickerRecord> stickers);
-  ValidationResult validateSticker(StickerRecord s); // dimension/size/format per kind
+  StickerValidator(this._probe);           // MediaProbe injected
+  Future<ValidationResult> validateSticker(StickerRecord s);       // probes the real file
+  Future<ValidationResult> validatePack(PackRecord pack, List<StickerRecord> stickers);
 }
 ```
 
-- [ ] **Step 1: Write failing tests** covering each rule:
+> **Why `MediaProbe` (decided 2026-07-24).** `StickerRecord` stores `sizeBytes` + `kind` but no pixel
+> dimensions or format, so a record-only validator would *trust* that 512×512 holds rather than verify
+> it. Every sticker is encoder-produced today, so the invariant holds by construction — but that breaks
+> for on-disk corruption or v2's "import existing `.webp`" path. `MediaProbe.probe(path)` reads the
+> **real file header** (WebP dimensions live in the first ~30 bytes) so `validateSticker` checks actual
+> bytes, not a record field. The interface is injected so validator tests use a `FakeMediaProbe` and
+> stay fast/file-less; `WebpMediaProbe` is verified separately against real WebP fixtures. This makes
+> `validateSticker`/`validatePack` **async**.
+
+- [x] **Step 1: Write failing validator tests** against a `FakeMediaProbe` — `test/export/sticker_validator_test.dart`:
 
 ```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:whatsapp_sticker_studio/export/sticker_validator.dart';
-// helpers: stickerOf(sizeBytes, kind), packOf(count)
+// FakeMediaProbe returns a fixed ProbeResult (default 512x512 webp) so tests
+// need no real files. Helpers: stickerOf(bytes, kind, {path}), packOf(count, {isAnimated}).
 
-void main() {
-  final v = StickerValidator();
-  test('pack with <3 stickers fails', () {
-    final r = v.validatePack(packOf(2), stickersOf(2));
-    expect(r.ok, isFalse);
-    expect(r.problems.any((p) => p.contains('at least 3')), isTrue);
-  });
-  test('animated sticker >500KB fails', () {
-    final r = v.validateSticker(stickerOf(600000, StickerKind.animated));
-    expect(r.ok, isFalse);
-  });
-  test('valid pack passes', () {
-    final r = v.validatePack(packOf(5), stickersOf(5, bytes: 400000));
-    expect(r.ok, isTrue);
-    expect(r.problems, isEmpty);
-  });
+test('pack with <3 stickers fails', () async {
+  final r = await v.validatePack(packOf(2), stickersOf(2));
+  expect(r.ok, isFalse);
+  expect(r.problems.any((p) => p.contains('at least 3')), isTrue);
+});
+test('animated sticker >500KB fails', () async {
+  expect((await v.validateSticker(stickerOf(600000, StickerKind.animated))).ok, isFalse);
+});
+test('static sticker >100KB fails', () async {
+  expect((await v.validateSticker(stickerOf(150000, StickerKind.staticImage))).ok, isFalse);
+});
+test('non-512 dimensions fail (probe returns 500x512)', () async {
+  final v = StickerValidator(FakeMediaProbe(width: 500));
+  final r = await v.validateSticker(stickerOf(50000, StickerKind.staticImage));
+  expect(r.ok, isFalse);
+  expect(r.problems.any((p) => p.contains('512')), isTrue);
+});
+test('non-webp format fails (probe returns png)', () async {
+  final v = StickerValidator(FakeMediaProbe(format: 'png'));
+  expect((await v.validateSticker(stickerOf(50000, StickerKind.staticImage))).ok, isFalse);
+});
+test('valid pack passes', () async {
+  final r = await v.validatePack(packOf(5), stickersOf(5, bytes: 400000));
+  expect(r.ok, isTrue);
+  expect(r.problems, isEmpty);
+});
+test('all problems are collected, not short-circuited', () async {
+  // <3 stickers AND one oversize: expect >=2 distinct problems.
+  final r = await v.validatePack(packOf(2), [
+    stickerOf(600000, StickerKind.animated), stickerOf(400000, StickerKind.animated),
+  ]);
+  expect(r.problems.length, greaterThanOrEqualTo(2));
+});
 
-  // Kind homogeneity — added 2026-07-18; see the note below.
-  test('animated pack containing a static sticker fails', () {
-    final pack = packOf(3, isAnimated: true);
-    final stickers = [
-      stickerOf(400000, StickerKind.animated),
-      stickerOf(400000, StickerKind.animated),
-      stickerOf(50000, StickerKind.staticImage), // the intruder
-    ];
-    final r = v.validatePack(pack, stickers);
-    expect(r.ok, isFalse);
-    expect(r.problems.any((p) => p.contains('animated')), isTrue);
-  });
-
-  test('static pack containing an animated sticker fails', () {
-    final r = v.validatePack(packOf(3, isAnimated: false), [
-      stickerOf(50000, StickerKind.staticImage),
-      stickerOf(50000, StickerKind.staticImage),
-      stickerOf(400000, StickerKind.animated),
-    ]);
-    expect(r.ok, isFalse);
-  });
-}
+// Kind homogeneity — real WhatsApp rule (see note).
+test('animated pack containing a static sticker fails', () async {
+  final r = await v.validatePack(packOf(3, isAnimated: true), [
+    stickerOf(400000, StickerKind.animated),
+    stickerOf(400000, StickerKind.animated),
+    stickerOf(50000, StickerKind.staticImage), // intruder
+  ]);
+  expect(r.ok, isFalse);
+  expect(r.problems.any((p) => p.contains('animated')), isTrue);
+});
+test('static pack containing an animated sticker fails', () async {
+  final r = await v.validatePack(packOf(3, isAnimated: false), [
+    stickerOf(50000, StickerKind.staticImage),
+    stickerOf(50000, StickerKind.staticImage),
+    stickerOf(400000, StickerKind.animated),
+  ]);
+  expect(r.ok, isFalse);
+});
 ```
 
 > **Kind homogeneity is a real WhatsApp rule and was missing from this task.** Packs must be
@@ -523,11 +549,21 @@ void main() {
 > animated pack, so a mixed pack should never reach here. Reaching this rule means promotion failed
 > or was skipped — a bug, not a user error.
 
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** using `WhatsAppSpec` (count 3–30; per-sticker size by kind; **every
-  sticker's `kind` must match the pack's `isAnimated`**; collect all problems, don't short-circuit).
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit & push** on `feat/validator`.
+- [x] **Step 2: Run → FAIL** (no `sticker_validator.dart` / `media_probe.dart`).
+- [x] **Step 3: Implement `MediaProbe` + `StickerValidator`.** `validateSticker`: probe the file →
+  check `width==512 && height==512`, `format=='webp'`, and size-by-kind. `validatePack`: count 3–30,
+  every `kind` matches `pack.isAnimated`, delegate each sticker to `validateSticker`. **Collect all
+  problems, don't short-circuit** — a user with three issues should see three messages. Problem
+  strings are user-facing (Task 11 surfaces them), so make them specific and friendly.
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Write failing `WebpMediaProbe` tests** — `test/export/webp_media_probe_test.dart`
+  against real fixtures: a genuine 512×512 WebP returns `(512, 512, 'webp')`; a non-WebP (e.g. a PNG,
+  or truncated bytes) is reported as a different `format` or a probe error, not silently passed.
+- [x] **Step 6: Implement `WebpMediaProbe`** — parse the RIFF/WEBP header (`VP8 `/`VP8L`/`VP8X`
+  chunks) to read width/height and confirm the `WEBP` FourCC. No new dependency if the header parse is
+  hand-rolled; otherwise reuse the `image` package once Task 5 adds it.
+- [x] **Step 7: Run → PASS**, then full suite + format + analyze.
+- [ ] **Step 8: Commit & push** on `feat/validator`.
 
 ---
 

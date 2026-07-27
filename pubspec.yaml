@@ -46,6 +46,9 @@ dependencies:
   # native step behind the WebpEncoder interface (device-verified with Task 6).
   image: ^4.3.0
 
+  # Sources (Task 8/8B): HTTP for Giphy search and the X-link extractor client.
+  http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

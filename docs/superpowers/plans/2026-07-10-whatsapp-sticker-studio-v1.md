@@ -732,20 +732,32 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 **Branch:** `feat/giphy-source`
 
 **Files:**
-- Create: `lib/sources/giphy_source.dart`, `lib/sources/giphy_client.dart`
-- Modify: `pubspec.yaml` (`http`); add `GIPHY_API_KEY` via `--dart-define`
-- Test: `test/sources/giphy_client_test.dart` (mock `http.Client`, no network)
+- Create: `lib/sources/source.dart` (the `Source` interface, pulled forward from Task 7),
+  `lib/sources/giphy_client.dart`, `lib/sources/giphy_source.dart`
+- Modify: `pubspec.yaml` (`http`); real `GIPHY_API_KEY` supplied via `--dart-define` at runtime
+- Test: `test/sources/giphy_client_test.dart`, `test/sources/giphy_source_test.dart` (mock `http.Client`, no network)
 
 **Interfaces:**
-- Consumes: `http.Client`, `MediaHandle`.
-- Produces: `class GiphyClient { Future<List<GiphyGif>> search(String q, {int limit}); }`, `class GiphyGif { String id; String title; Uri previewUrl; Uri mp4Url; }`, and `GiphySource` (returns the chosen gif's media as a `MediaHandle` of kind `video`/`gif`).
+- Consumes: `http.Client`, `MediaHandle`, `Source`.
+- Produces: `class GiphyClient { Future<List<GiphyGif>> search(String q, {int limit}); }`, `class GiphyGif { String id; String title; Uri previewUrl; Uri mp4Url; }`, and `GiphySource implements Source` (returns the chosen gif's mp4 as a `MediaHandle` of kind `video`).
 
-- [ ] **Step 1: Verify Giphy API terms** — confirm the free/beta key works, note rate limits and required attribution in `CLAUDE.md`.
-- [ ] **Step 2: Write failing test** — `GiphyClient.search` parses a canned JSON fixture into `GiphyGif`s (inject a mocked `http.Client`).
-- [ ] **Step 3: Run → FAIL.**
-- [ ] **Step 4: Implement** `GiphyClient` (GET `/v1/gifs/search`), `GiphySource` (download chosen gif bytes → `MediaHandle`). Feeds straight into the Encoder.
-- [ ] **Step 5: Run → PASS.**
+- [x] **Step 1: Verify Giphy API terms** — free key needs no verification for the mocked tests; real
+  key + rate limits/attribution recorded in `CLAUDE.md` when the user creates one (live-verify step).
+- [x] **Step 2: Write failing tests** — `GiphyClient.search` parses a canned JSON fixture into
+  `GiphyGif`s via a `MockClient`; `GiphySource.pick()` downloads the mp4 into a `MediaHandle`.
+- [x] **Step 3: Run → FAIL.**
+- [x] **Step 4: Implement** the `Source` interface, `GiphyClient` (GET `/v1/gifs/search`), and
+  `GiphySource` (downloads the chosen gif's mp4 → `MediaHandle`, `null` on a failed download).
+  *(Actual: parser skips a malformed gif rather than failing the whole search; `apiKey` made a public
+  initializing formal to satisfy `prefer_initializing_formals`.)*
+- [x] **Step 5: Run → PASS** *(7 source tests; full suite 66/66; format + analyze clean; debug APK
+  builds).*
 - [ ] **Step 6: Commit & push** on `feat/giphy-source`.
+
+**Deferred (runtime, non-blocking):** live-verify `GiphyClient` against the real API once the user's
+free key exists (`--dart-define=GIPHY_API_KEY=…`, never committed); record real rate limits +
+"Powered by GIPHY" attribution in `CLAUDE.md`. The *browsing/selection* UI (pick which gif) is the
+Maker's job (Task 13); `GiphySource` only fetches the already-chosen gif.
 
 ---
 

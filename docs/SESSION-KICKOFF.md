@@ -35,21 +35,29 @@ show me the output.
 
 ## Fast facts for whoever picks this up
 
-**Where things stand (2026-07-25):** Tasks 1–5 and 8 merged to `main` (CI green); **Task 8B
-code-complete, pushed on `feat/xlink-source`, awaiting CI → merge**. 72 Flutter tests + 4 backend
-pytest, analyze + format clean, debug APK builds. **Task 5 is the device-free half only** — its real
-WebP encode (Task 5b) is deferred to the device session.
+**Where things stand (2026-07-29):** Tasks 1–5, **5b**, 8 and 8B merged/committed. 76 Flutter tests
++ 4 on-device integration tests + 4 backend pytest; analyze + format clean; debug APK builds.
+**Task 5b is now DONE and device-verified** — `main` is no longer the whole story: Task 5b sits on
+the branch **`feat/encoder-native`** (commit a9f0ee0), not yet merged or pushed.
 
-**NEXT SESSION = THE DEVICE BATCH (bring the Android phone).** All fully device-free work is done
-(8 Giphy, 8B X-link). The only remaining device-free option is **Task 10 (search)** if you want a
-warm-up; otherwise go straight to the device batch. Sequencing decided 2026-07-25: do split/native
-tasks WHOLE on the device rather than fragmenting them. Order:
-1. **Task 5b + 6** — real `WebpEncoder` + animated encoder (shared `ffmpeg_kit` dependency).
-2. **Task 7** — real gallery/camera/share-in pickers (`image_picker`, `receive_sharing_intent`).
-3. **Task 9** — real ML Kit tagger. **Task 12** — real share sheet.
-4. **Task 11** — WhatsApp handshake (**needs a real phone with WhatsApp installed**, not an emulator).
-5. **Tasks 13/14** — UI. **Task 15** — end-to-end.
-Device is first strictly required at Task 6. Verify each device task once, at its end.
+**THE DEVICE IS NOW WORKING.** usbipd-win forwards the phone into WSL — full `adb`, hot reload,
+logcat and `integration_test`. **Read the "Connecting the Android device" section in `CLAUDE.md`
+first**; it has the exact commands and the three failure symptoms. Per-session you need one attach:
+`"/mnt/c/Program Files/usbipd-win/usbipd.exe" attach --wsl --busid 2-4` (no admin needed).
+
+**NEXT: Task 6 (animated encoder), starting at its Step 1.** The dependency question is settled and
+the APK builds against `ffmpeg_kit_flutter_new_video` — but **nobody has yet run ffmpeg on the device
+to prove it can mux animated WebP**. Do that before writing `AnimatedEncoder`; if libwebp turns out
+to be absent, the variant must change first. Then Step 5b's `promoteStatic` (≥2 identical frames).
+
+Remaining order after that:
+1. **Task 7** — real gallery/camera/share-in pickers (`image_picker`, `receive_sharing_intent`).
+2. **Task 9** — real ML Kit tagger. **Task 12** — real share sheet.
+3. **Task 11** — WhatsApp handshake (**needs a real phone with WhatsApp installed**, not an emulator).
+   Consider pulling this *earlier*: it answers whether the 3-sticker minimum is truly enforced and
+   whether the ≥2-frame promotion survives WhatsApp's closed-source validator — and a "no" on the
+   latter changes Task 13's whole flow, which is expensive to learn after building the Maker UI.
+4. **Tasks 13/14** — UI. **Task 15** — end-to-end. **Task 10** (search) is device-free, any time.
 
 **Two live-verifications to run next session (both need external input, see `CLAUDE.md`):**
 - **Giphy:** create a free key at developers.giphy.com → run the client against the real API
@@ -76,9 +84,9 @@ homogeneous — with an agreed silent-promotion strategy for statics joining ani
 - **`flutter test` does not prove the Android build works.** Also run `flutter build apk --debug`.
 - CI (`.github/workflows/ci.yml`) runs format → analyze → test → debug APK on every push/PR.
 
-**Not yet available:** no Android device is connected. Tasks **6** (animated encoder / FFmpeg),
-**11** (WhatsApp ContentProvider handshake) and **15** (e2e) need a real phone over adb — in WSL2,
-adb-over-Wi-Fi or `usbipd-win` are the workable routes; emulators inside WSL2 are painful.
+**Device access: SOLVED (2026-07-29)** via `usbipd-win` — see `CLAUDE.md`. Phone is A059P /
+Android 16 (API 36), BUSID `2-4`, serial `00178358P000397`. Note that `adb.exe` on the *Windows*
+side will steal the device from WSL; kill that server if `attach` reports "Device busy".
 
 **Also pending:** the tiny extraction service for Task 8B (`services/extractor/`, FastAPI + yt-dlp)
 needs a deploy target chosen before the X-link source can work end-to-end.

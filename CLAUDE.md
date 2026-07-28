@@ -71,6 +71,36 @@ genuinely animated. Never show the user a mixed-kind error.
 - Can a pack's `animated_sticker_pack` flag flip after install? Undocumented in every source. Weak
   signal suggests it may be sticky.
 
+## Encoding stack (decided + device-verified 2026-07-29)
+
+**Static WebP uses Android's built-in encoder, not ffmpeg.** `Bitmap.compress(WEBP_LOSSY)` behind a
+`MethodChannel` (`WebpEncoderChannel.kt` ↔ `lib/encoder/native_webp_encoder.dart`), walking quality
+**100→90→…→50** and stopping at the first result ≤ 100 KB. No dependency, and it compresses in
+memory — routing six ladder attempts through ffmpeg would mean six process spawns and six temp-file
+round-trips on every live-preview refresh. `WebpEncoder` stays an injected interface, so this is
+cheap to swap if it ever disappoints.
+
+- **Verified on device:** lossy WebP **preserves alpha**, so `pad`'s letterbox bars stay transparent.
+  This was the main risk in not using libwebp directly. Settled — don't re-litigate.
+- **Refuses rather than overshoots:** if quality 50 still exceeds the ceiling it throws
+  `EncoderException`. Overshooting silently would resurface as an opaque WhatsApp rejection at export,
+  long after the user made the sticker.
+- **Threading:** encode on a background `Executor`; post **both** success and error replies back via
+  `Handler(Looper.getMainLooper())` — `MethodChannel.Result` is not thread-safe.
+- **Pixel packing:** explicit `setPixels` with `0xAARRGGBB` ints, **never** `copyPixelsFromBuffer`
+  (raw byte copy assuming an in-memory order that isn't RGBA everywhere; silently swaps red/blue).
+  Kotlin's `Byte` is signed, so each channel needs `and 0xFF`.
+- **Test fixtures:** uniform random noise is maximum-entropy and fits under 100 KB at *no* quality
+  (139 KB at q50). Use structured photo-like fixtures to exercise the ladder; keep noise only to pin
+  the refusal path.
+
+**Animated WebP still needs ffmpeg — Android has no built-in animated-WebP encoder at any API
+level.** `ffmpeg_kit_flutter` is **retired** (2026-01-06; binaries pulled 2026-04-01 — it cannot
+build). Use **`ffmpeg_kit_flutter_new_video`** (LGPL, FFmpeg 8.1.2, minSdk 24): the smallest
+maintained variant carrying libwebp, avoiding the x264/x265 **GPL** obligations of the full variants.
+The APK builds and links against it; that it can actually **mux animated WebP is still unverified on
+device** — that is Task 6 Step 1. It emits a Kotlin-Gradle-Plugin deprecation warning; harmless now.
+
 ## X/Twitter extractor service (`services/extractor/`)
 
 FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only
@@ -94,6 +124,48 @@ Twitter-format break is fixed by upgrading yt-dlp, not shipping a new app build.
 
 To run locally: `pip install -r services/extractor/requirements.txt` then
 `uvicorn main:app` from `services/extractor/`.
+
+## Connecting the Android device (WSL2) — solved 2026-07-29, don't re-derive
+
+**A USB cable alone does nothing: WSL2 has no USB stack.** The phone attaches to the Windows kernel;
+WSL is a separate VM, so `adb devices` in WSL is empty by design — it is not an adb bug. (Wireless
+`adb pair` also fails here under NAT networking with `protocol fault (couldn't read status message)`.
+The sibling DaySync project never solved this and sideloaded APKs to `/mnt/c/Users/arjun/Downloads/`
+instead — viable, but it gives up hot reload, logcat and `integration_test`, so it is not our route.)
+
+**Working setup — `usbipd-win` forwards the USB device into WSL.** Device: **A059P, Android 16
+(API 36)**, serial `00178358P000397`, USB id `18d1:4e11`, usbipd **BUSID 2-4**.
+
+One-time (Windows PowerShell **as admin**; `winget install usbipd`):
+```powershell
+usbipd bind --busid 2-4        # once per device; survives reboots
+```
+Per session, after each replug/reboot (this one does **not** need admin, so it can be run from WSL):
+```bash
+"/mnt/c/Program Files/usbipd-win/usbipd.exe" attach --wsl --busid 2-4
+```
+One-time in WSL (needs a **real terminal** — sudo can't prompt for a password through Claude Code):
+```bash
+sudo tee /etc/udev/rules.d/51-android.rules >/dev/null \
+  <<< 'SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0666", GROUP="plugdev"'
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+**Three failure modes, each with a distinct symptom:**
+- `attach` → **"Device busy (exported)"** — a **Windows** adb server has claimed the phone. Fix:
+  `"/mnt/c/Users/arjun/AppData/Local/Android/Sdk/platform-tools/adb.exe" kill-server`. Note that
+  running `adb.exe devices` **restarts** that daemon, re-breaking it — don't re-query after killing.
+- `adb devices` → **"no permissions"** — the udev rule is missing or hasn't applied yet.
+  `udevadm trigger` is **asynchronous**, so adb can scan too early; just restart adb afterwards.
+- `adb devices` → **"unauthorized"** — permissions are fine; accept the *"Allow USB debugging?"*
+  prompt on the phone (tick *Always allow*).
+
+Four WSL distros are installed and `Ubuntu-20.04` is the default, but **this project lives in
+`Ubuntu-22.04`**. usbipd reports attaching via the default distro; that's fine — WSL2 distros share
+one kernel, so the device is visible in all of them.
+
+Verify with `flutter devices`; run device tests with
+`flutter test integration_test/<file> -d 00178358P000397`.
 
 ## Local dev setup (WSL/Ubuntu)
 - Flutter SDK lives at `~/flutter`. Non-interactive shells don't read `~/.bashrc`, so scripts must

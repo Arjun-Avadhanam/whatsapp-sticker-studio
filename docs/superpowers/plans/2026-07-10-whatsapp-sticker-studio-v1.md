@@ -441,7 +441,7 @@ void main() {
      existing row leaves the old value instead of clearing it — a note could never be deleted.
 - [x] **Step 6: Run tests** — `flutter test test/library` → PASS *(15/15; full suite 35/35, analyze +
   format clean, debug APK builds with drift's native SQLite)*.
-- [ ] **Step 7: Commit & push** on `feat/library-store`.
+- [x] **Step 7: Commit & push** on `feat/library-store`. *(Merged to `main` as aaeee13.)*
 
 ---
 
@@ -563,7 +563,7 @@ test('static pack containing an animated sticker fails', () async {
   chunks) to read width/height and confirm the `WEBP` FourCC. No new dependency if the header parse is
   hand-rolled; otherwise reuse the `image` package once Task 5 adds it.
 - [x] **Step 7: Run → PASS**, then full suite + format + analyze.
-- [ ] **Step 8: Commit & push** on `feat/validator`.
+- [x] **Step 8: Commit & push** on `feat/validator`. *(Merged to `main` as ec96177.)*
 
 ---
 
@@ -618,9 +618,34 @@ abstract class WebpEncoder {
   (subject-aware detection deferred to v1.1). Extract RGBA and delegate to the injected `WebpEncoder`.
 - [x] **Step 4: Run → PASS** (pure Dart, no device).
 - [x] **Step 5: Commit & push** the device-free half on `feat/encoder-static`.
-- [ ] **Step 5b (device session): implement the real `WebpEncoder`** over libwebp/`ffmpeg_kit` (pairs
+- [x] **Step 5b (device session): implement the real `WebpEncoder`** over libwebp/`ffmpeg_kit` (pairs
   with Task 6), stepping quality 100→90→…→50 until ≤ 100 KB. Device-verify: real photo → genuine
   512×512 WebP ≤ 100 KB, confirmed by the `WebpMediaProbe` from Task 4.
+
+  *(Actual, 2026-07-29 — **not** ffmpeg. Static WebP uses Android's built-in
+  `Bitmap.compress(WEBP_LOSSY)` via a `MethodChannel` (`WebpEncoderChannel.kt` +
+  `lib/encoder/native_webp_encoder.dart`). No dependency, and it compresses **in memory** — the
+  ladder re-encodes up to six times, and routing that through ffmpeg would mean six process spawns
+  and six temp-file round-trips every time the Maker refreshes its live readout. ffmpeg is still
+  needed for Task 6, since Android has **no built-in animated-WebP encoder at any API level**.*
+
+  *Three implementation notes worth not rediscovering:*
+  - *Encoding runs on a background `Executor`, but **every** reply — success **and** error — is
+    posted back via `Handler(Looper.getMainLooper())`. `MethodChannel.Result` is not thread-safe.*
+  - *RGBA→ARGB packing is explicit (`setPixels` with `0xAARRGGBB` ints), **not**
+    `copyPixelsFromBuffer`, which copies raw bytes assuming an in-memory order that is not RGBA
+    everywhere and silently swaps red/blue where it is wrong. Alpha is load-bearing here.*
+  - *Kotlin `Byte` is signed, so every channel needs `and 0xFF` or values above 127 come out wrong.*
+
+  *Device-verified on A059P / Android 16 (API 36), 4 integration tests in
+  `integration_test/native_webp_encoder_test.dart`: probe-confirmed 512×512 WebP ≤ 100 KB; **lossy
+  WebP preserves alpha**, so `pad`'s letterbox bars stay transparent (the main risk in choosing
+  Android's encoder); the ladder demonstrably steps below 100 on detailed input; and an input that
+  cannot fit is **refused** rather than silently overshooting.*
+
+  *Test-fixture lesson: uniform random noise is maximum-entropy and will not fit under 100 KB at any
+  quality (smallest was 139 KB at q50). Use structured, photo-like fixtures to exercise the ladder;
+  keep a noise fixture only to pin the refusal path.*
 
 ---
 
@@ -630,16 +655,39 @@ abstract class WebpEncoder {
 
 **Files:**
 - Create: `lib/encoder/animated_encoder.dart`
-- Modify: `pubspec.yaml` (add `ffmpeg_kit_flutter` — pick the min GPL/LTS variant that includes libwebp/libvpx)
+- Modify: `pubspec.yaml` — **done 2026-07-29**: `ffmpeg_kit_flutter_new_video: ^2.4.3`.
+
+> **The originally-named `ffmpeg_kit_flutter` is DEAD — do not try to use it.** FFmpegKit was retired
+> 2026-01-06 and its native binaries were pulled from Maven Central/CocoaPods on 2026-04-01, so it
+> cannot build at all. `ffmpeg_kit_flutter_new` is the maintained community fork (FFmpeg 8.1.2,
+> minSdk 24 — matches this project exactly).
+>
+> **Take the `_video` variant, not the plan's original "min GPL" wording.** `_video` is the smallest
+> variant that ships **libwebp** (needed to mux animated WebP); `_full` and the unsuffixed package
+> add x264/x265 under **GPL**, whose obligations would attach to the distributed app. We only
+> *decode* H.264 (FFmpeg's built-in decoder, no external lib) and only *encode* WebP, so LGPL
+> `_video` is sufficient. Verified: debug APK builds and links against it.
+>
+> Known warning, not yet blocking: the plugin applies its own Kotlin Gradle Plugin, which Flutter
+> warns future versions will reject. Revisit if a Flutter upgrade breaks the build.
 - Test: `integration_test/animated_encoder_test.dart` (runs on a device/emulator — ffmpeg needs the platform)
 
 **Interfaces:**
 - Consumes: `MediaHandle` (gif/video), `EncodeParams` (uses `trim`), `WhatsAppSpec`.
 - Produces: `EncodedSticker` with `kind == StickerKind.animated`.
 
-- [ ] **Step 1: Verify the ffmpeg package variant** exposes animated-WebP muxing.
+- [~] **Step 1: Verify the ffmpeg package variant** exposes animated-WebP muxing. *(PARTIAL,
+  2026-07-29 — **start here next session.**)*
+
+  **Done:** the retired package was identified and replaced; `ffmpeg_kit_flutter_new_video: ^2.4.3`
+  resolves, and a debug APK **builds and links against it** (see the dependency note above).
+  **Not done:** that libwebp is present is claimed by the package's own docs — it has **not** been
+  confirmed by running ffmpeg on the device.
 
 Run (in `integration_test`): encode a 3 s test mp4 to animated webp via an FFmpeg command; assert exit code success. If the chosen variant lacks libwebp, switch variants before proceeding. Document the working variant in `CLAUDE.md`.
+
+  Practical note for the run: a source clip can be generated on-device rather than committed as a
+  binary fixture — the `image` package encodes animated GIF, which also exercises the decode path.
 
 - [ ] **Step 2: Write failing integration test** — trim to ≤ 10 s, output ≤ 500 KB, 512×512, animated:
 
@@ -752,7 +800,7 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
   initializing formal to satisfy `prefer_initializing_formals`.)*
 - [x] **Step 5: Run → PASS** *(7 source tests; full suite 66/66; format + analyze clean; debug APK
   builds).*
-- [ ] **Step 6: Commit & push** on `feat/giphy-source`.
+- [x] **Step 6: Commit & push** on `feat/giphy-source`. *(Merged to `main` as 65c7724.)*
 
 **Deferred (runtime, non-blocking):** live-verify `GiphyClient` against the real API once the user's
 free key exists (`--dart-define=GIPHY_API_KEY=…`, never committed); record real rate limits +
@@ -894,7 +942,7 @@ void main() {
 
 - [x] **Step 9: Run Dart tests** — `flutter test test/sources` → PASS.
 
-- [ ] **Step 10: Commit & push** on `feat/xlink-source` (backend + app together).
+- [x] **Step 10: Commit & push** on `feat/xlink-source` (backend + app together). *(Merged to `main` as 38689db.)*
 
 ---
 

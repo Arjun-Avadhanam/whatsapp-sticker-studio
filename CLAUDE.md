@@ -71,6 +71,30 @@ genuinely animated. Never show the user a mixed-kind error.
 - Can a pack's `animated_sticker_pack` flag flip after install? Undocumented in every source. Weak
   signal suggests it may be sticky.
 
+## X/Twitter extractor service (`services/extractor/`)
+
+FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only
+**resolves** the tweet's mp4 URL (`skip_download`); the app downloads the bytes. Server-side so a
+Twitter-format break is fixed by upgrading yt-dlp, not shipping a new app build.
+
+**Live-test findings (2026-07-25, local run, real unmocked yt-dlp):**
+- Service runs end-to-end; error path surfaces yt-dlp's real messages as 422. ✅
+- **This environment reaches Twitter** — yt-dlp's `[twitter]` extractor ran and returned
+  tweet-specific responses (`No video could be found in this tweet`), i.e. **not** IP-blocked at the
+  network level. ✅
+- **Success path (200 + real `mp4_url`) NOT yet confirmed** — the tweets tried had no extractable
+  video (IDs were guessed). Needs a **known-video tweet URL** to confirm.
+
+**TODO next session (needs a real video-bearing tweet URL, ideally from the user):**
+- Run `POST /extract` with a tweet that definitely has video → confirm a real `mp4_url` comes back.
+- If Twitter auth-gates video from a datacenter IP, the deploy target may need yt-dlp **cookies**.
+- After a confirmed success, **pin the working yt-dlp version** in `requirements.txt` (currently a
+  floor `>=`, deliberately kept updatable).
+- **Choose a deploy target** (free PaaS / small VPS) and record the base URL the app points at.
+
+To run locally: `pip install -r services/extractor/requirements.txt` then
+`uvicorn main:app` from `services/extractor/`.
+
 ## Local dev setup (WSL/Ubuntu)
 - Flutter SDK lives at `~/flutter`. Non-interactive shells don't read `~/.bashrc`, so scripts must
   `export PATH="$HOME/flutter/bin:$PATH"` before calling `flutter`.

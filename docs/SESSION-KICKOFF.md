@@ -35,25 +35,33 @@ show me the output.
 
 ## Fast facts for whoever picks this up
 
-**Where things stand (2026-07-24):** Tasks 1–3 complete, merged to `main`, CI green — 35/35 tests,
-analyze clean, format clean, debug APK builds (with drift's native SQLite). Next is **Task 4 —
-sticker/pack validator**, branch `feat/validator`. Pure Dart, no device needed. Note Task 4 now
-carries a **kind-homogeneity rule** (added 2026-07-18): every sticker's `kind` must match the pack's
-`isAnimated`, as a backstop to the silent-promotion UX.
+**Where things stand (2026-07-25):** Tasks 1–5 and 8 merged to `main` (CI green); **Task 8B
+code-complete, pushed on `feat/xlink-source`, awaiting CI → merge**. 72 Flutter tests + 4 backend
+pytest, analyze + format clean, debug APK builds. **Task 5 is the device-free half only** — its real
+WebP encode (Task 5b) is deferred to the device session.
 
-**Task 3 shipped** `lib/library/database.dart` (drift Stickers/Packs, `StringListConverter` for list
-fields, `textEnum` for enums), the **committed** generated `database.g.dart` (CI does not run
-build_runner), and `LibraryStore`/`DriftLibraryStore`. Two reusable gotchas it surfaced:
-- **drift upsert + null:** pass an explicit `Companion` with `Value(null)` to
-  `insertOnConflictUpdate`, not a data-class row — a data class serialises nulls as *absent*, so an
-  upsert leaves a column unchanged and a field can never be cleared.
-- **Dart optional-param defaults** resolve from the *static type*. A sentinel default (`_unset` for
-  nullable `copyWith`/`updateMetadata` params) must be on BOTH the abstract interface and the impl,
-  or "omitted" and "passed null" collapse for callers holding the interface type.
+**NEXT SESSION = THE DEVICE BATCH (bring the Android phone).** All fully device-free work is done
+(8 Giphy, 8B X-link). The only remaining device-free option is **Task 10 (search)** if you want a
+warm-up; otherwise go straight to the device batch. Sequencing decided 2026-07-25: do split/native
+tasks WHOLE on the device rather than fragmenting them. Order:
+1. **Task 5b + 6** — real `WebpEncoder` + animated encoder (shared `ffmpeg_kit` dependency).
+2. **Task 7** — real gallery/camera/share-in pickers (`image_picker`, `receive_sharing_intent`).
+3. **Task 9** — real ML Kit tagger. **Task 12** — real share sheet.
+4. **Task 11** — WhatsApp handshake (**needs a real phone with WhatsApp installed**, not an emulator).
+5. **Tasks 13/14** — UI. **Task 15** — end-to-end.
+Device is first strictly required at Task 6. Verify each device task once, at its end.
 
-**Task 2 shipped** `WhatsAppSpec`, `media.dart` and immutable `StickerRecord`/`PackRecord` (enums,
-`final` + `copyWith`, value equality — folded into spec and plan as source of truth). Records use
-`listEquals`/`Object.hashAll` for list fields (`List`'s own `==` is identity).
+**Two live-verifications to run next session (both need external input, see `CLAUDE.md`):**
+- **Giphy:** create a free key at developers.giphy.com → run the client against the real API
+  (`--dart-define=GIPHY_API_KEY=…`, never commit); record rate limits + "Powered by GIPHY".
+- **X-link extractor:** run `services/extractor` against a **known-video tweet URL** to confirm the
+  success path (the real service already reaches Twitter; only success unconfirmed). Then pin the
+  yt-dlp version and pick a deploy target.
+
+**Tasks 1–5, 8, 8B shipped** — full detail in the auto-memory `project_state.md` and the plan's
+ticked steps. Recurring lessons already captured there: drift upsert needs `Companion`+`Value(null)`
+to clear a field; sentinel defaults must match on interface + impl; the `image` pkg can't encode
+WebP (native step deferred); `decodeImage` throws on tiny buffers.
 
 **Read the "WhatsApp API realities" section in `CLAUDE.md` before Tasks 4, 11 or 13.** Researched
 2026-07-18: WhatsApp validates independently of our code (you can't delete your way around a rule),

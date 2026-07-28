@@ -6,6 +6,12 @@ build/
 .flutter-plugins-dependencies
 *.iml
 
+# Python (services/extractor)
+__pycache__/
+*.pyc
+.pytest_cache/
+services/extractor/.venv/
+
 # Android
 android/.gradle/
 android/local.properties

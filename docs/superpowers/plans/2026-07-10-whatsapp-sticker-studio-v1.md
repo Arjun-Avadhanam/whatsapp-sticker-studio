@@ -783,7 +783,7 @@ class ExtractionClient { ExtractionClient(this._http, this._baseUri); Future<Ext
 class XLinkSource implements Source { XLinkSource(this._client, this._http, this._tweetUrl); Future<MediaHandle?> pick(); }
 ```
 
-- [ ] **Step 1: Write the failing backend test** — `services/extractor/test_extractor.py` (mock yt-dlp; no network):
+- [x] **Step 1: Write the failing backend test** — `services/extractor/test_extractor.py` (mock yt-dlp; no network):
 
 ```python
 from fastapi.testclient import TestClient
@@ -808,12 +808,12 @@ def test_extract_failure_returns_422():
     assert "error" in r.json()
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `cd services/extractor && pip install -r requirements.txt && pytest`
 Expected: FAIL — `main` not found.
 
-- [ ] **Step 3: Implement the service** — `services/extractor/main.py`:
+- [x] **Step 3: Implement the service** — `services/extractor/main.py`:
 
 ```python
 from fastapi import FastAPI, HTTPException
@@ -847,14 +847,20 @@ def extract(req: ExtractRequest):
 
 `requirements.txt`: `fastapi`, `uvicorn`, `yt-dlp`. `Dockerfile`: python-slim, install requirements, `CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]`.
 
-- [ ] **Step 4: Run backend tests**
+- [x] **Step 4: Run backend tests**
 
 Run: `cd services/extractor && pytest`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Verify real extraction (§9 item)** — with the service running, `curl -X POST localhost:8000/extract -d '{"url":"<a real public tweet with a GIF/video>"}' -H 'Content-Type: application/json'` returns an mp4 URL. If X changed its params and it fails, run `pip install -U yt-dlp` and retry; pin the working version in `requirements.txt`. Note the deploy target (VPS / free-tier PaaS) in `CLAUDE.md`.
+- [~] **Step 5: Verify real extraction (§9 item)** — *(PARTIAL, 2026-07-25 — see `CLAUDE.md`)*
+  Ran the real (unmocked) service locally: it works end-to-end, and **this environment reaches
+  Twitter** (yt-dlp's `[twitter]` extractor ran, returned tweet-specific responses — not IP-blocked).
+  Error path surfaces yt-dlp messages as 422. **Success path (200 + real `mp4_url`) NOT yet
+  confirmed** — the tweets tried had no extractable video. **Next session:** run against a
+  known-video tweet URL; if auth-gated from a datacenter IP, add yt-dlp cookies on the deploy target;
+  then **pin the working yt-dlp version** and **choose a deploy target** (both noted in `CLAUDE.md`).
 
-- [ ] **Step 6: Write the failing Dart client test** — `test/sources/extraction_client_test.dart` (mocked `http.Client`, no network):
+- [x] **Step 6: Write the failing Dart client test** — `test/sources/extraction_client_test.dart` (mocked `http.Client`, no network):
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -882,11 +888,11 @@ void main() {
 }
 ```
 
-- [ ] **Step 7: Run it to see it fail** — `flutter test test/sources/extraction_client_test.dart` → FAIL (no `extraction_client.dart`).
+- [x] **Step 7: Run it to see it fail** — `flutter test test/sources/extraction_client_test.dart` → FAIL (no `extraction_client.dart`).
 
-- [ ] **Step 8: Implement `ExtractionClient` and `XLinkSource`.** `ExtractionClient.extract` POSTs `{url}` to `$_baseUri/extract`; on 200 parse `ExtractedMedia`; else throw `ExtractionException`. `XLinkSource.pick()` calls `extract(_tweetUrl)`, downloads the mp4 bytes via `_http.get`, and returns `MediaHandle(bytes: …, kind: MediaKind.video, mimeType: 'video/mp4')`; on `ExtractionException` returns `null` so the Maker can surface a friendly message (per spec §7).
+- [x] **Step 8: Implement `ExtractionClient` and `XLinkSource`.** `ExtractionClient.extract` POSTs `{url}` to `$_baseUri/extract`; on 200 parse `ExtractedMedia`; else throw `ExtractionException`. `XLinkSource.pick()` calls `extract(_tweetUrl)`, downloads the mp4 bytes via `_http.get`, and returns `MediaHandle(bytes: …, kind: MediaKind.video, mimeType: 'video/mp4')`; on `ExtractionException` returns `null` so the Maker can surface a friendly message (per spec §7).
 
-- [ ] **Step 9: Run Dart tests** — `flutter test test/sources` → PASS.
+- [x] **Step 9: Run Dart tests** — `flutter test test/sources` → PASS.
 
 - [ ] **Step 10: Commit & push** on `feat/xlink-source` (backend + app together).
 

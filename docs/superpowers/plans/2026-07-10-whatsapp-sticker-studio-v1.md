@@ -676,20 +676,18 @@ abstract class WebpEncoder {
 - Consumes: `MediaHandle` (gif/video), `EncodeParams` (uses `trim`), `WhatsAppSpec`.
 - Produces: `EncodedSticker` with `kind == StickerKind.animated`.
 
-- [~] **Step 1: Verify the ffmpeg package variant** exposes animated-WebP muxing. *(PARTIAL,
-  2026-07-29 — **start here next session.**)*
-
-  **Done:** the retired package was identified and replaced; `ffmpeg_kit_flutter_new_video: ^2.4.3`
-  resolves, and a debug APK **builds and links against it** (see the dependency note above).
-  **Not done:** that libwebp is present is claimed by the package's own docs — it has **not** been
-  confirmed by running ffmpeg on the device.
+- [x] **Step 1: Verify the ffmpeg package variant** exposes animated-WebP muxing. *(DONE 2026-07-29,
+  device-verified — `integration_test/ffmpeg_webp_probe_test.dart`.)*
 
 Run (in `integration_test`): encode a 3 s test mp4 to animated webp via an FFmpeg command; assert exit code success. If the chosen variant lacks libwebp, switch variants before proceeding. Document the working variant in `CLAUDE.md`.
 
-  Practical note for the run: a source clip can be generated on-device rather than committed as a
-  binary fixture — the `image` package encodes animated GIF, which also exercises the decode path.
+  *(Actual: runtime reports variant `video` with libwebp present, and produces genuine multi-frame
+  output — chunks `[VP8X, ANIM, ANMF×6]`. The test **parses the RIFF chunk list** rather than
+  searching the bytes for 'ANMF', because compressed payloads can contain those bytes by chance and
+  a still image would otherwise look animated. Note the build has **no H.264 encoder** (x264 is GPL
+  and correctly absent); irrelevant, since we only decode H.264 and only encode WebP.)*
 
-- [ ] **Step 2: Write failing integration test** — trim to ≤ 10 s, output ≤ 500 KB, 512×512, animated:
+- [x] **Step 2: Write failing integration test** — trim to ≤ 10 s, output ≤ 500 KB, 512×512, animated:
 
 ```dart
 testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
@@ -701,8 +699,8 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 });
 ```
 
-- [ ] **Step 3: Run → FAIL.**
-- [ ] **Step 4: Implement `AnimatedEncoder`** with **progressive degradation** to hit 500 KB: pipeline = trim (≤10 s) → scale/pad to 512² → encode animated WebP at target fps/quality; if oversize, degrade in order **fps (15→12→10→8) → drop frames → quality → dimension-internal** until ≤ 500 KB, recording each choice in `QualityReport`. Never emit an oversize file — if the floor still exceeds 500 KB, throw `EncoderBudgetException` for the UI to surface.
+- [x] **Step 3: Run → FAIL.**
+- [x] **Step 4: Implement `AnimatedEncoder`** with **progressive degradation** to hit 500 KB: pipeline = trim (≤10 s) → scale/pad to 512² → encode animated WebP at target fps/quality; if oversize, degrade in order **fps (15→12→10→8) → drop frames → quality → dimension-internal** until ≤ 500 KB, recording each choice in `QualityReport`. Never emit an oversize file — if the floor still exceeds 500 KB, throw `EncoderBudgetException` for the UI to surface.
 
 > **Do not budget as `500 KB ÷ frame count`.** Animated WebP uses **inter-frame compression** — after
 > the keyframe, each frame stores only the changed-pixel rectangle. Cost therefore scales with *visual
@@ -715,9 +713,25 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 >   than accept a mushy sticker. Most good animated stickers are 1.5–3 s loops, not the full 10 s.
 > - A scene cut mid-clip forces a new keyframe. If a source blows the budget, check for cuts before
 >   assuming the whole clip is too complex.
-- [ ] **Step 5: Run → PASS** on emulator.
 
-- [ ] **Step 5b: Implement static→animated promotion** *(added 2026-07-18 — see `CLAUDE.md`)*
+> **⚠️ MEASURED 2026-07-29 — the note above is WRONG for this toolchain. Cost is ~LINEAR IN FRAME
+> COUNT.** On device: 10 identical frames = **10.09×** one frame, 40 = **40.28×**, and *moving*
+> content came within **2%** of *identical* content. FFmpeg's webp muxer encodes each frame
+> independently rather than diffing. Switching to `-c:v libwebp_anim` (which does drive libwebp's
+> `WebPAnimEncoder`) recovers only ~16%. Consequences:
+> - Usable frames ≈ **500 KB ÷ per-frame cost**. Simple sticker art (flat background, small moving
+>   subject) runs ~1.8 KB/frame and *can* fill the full 10 s; detailed content runs several KB/frame
+>   and **cannot** — long stickers are only reachable for simple art.
+> - **fps and duration are therefore the dominant levers**, which vindicates the fps-first ladder
+>   above but for the opposite reason to the one given. Task 13 should push *trimming* over quality.
+> - Still **encode and measure** rather than predicting — per-frame cost varies with content.
+> - `promoteStatic` **must use plain `-c:v libwebp`**: `libwebp_anim` diffs two identical frames to
+>   nothing and collapses them into one, which WhatsApp rejects exactly like a static file.
+- [x] **Step 5: Run → PASS** — on the real device (A059P/API 36), not an emulator. 7 tests in
+  `integration_test/animated_encoder_test.dart`: GIF source, MP4 source, transparent pad bars, trim,
+  the 10 s cap, budget refusal, and promotion.
+
+- [x] **Step 5b: Implement static→animated promotion** *(added 2026-07-18 — see `CLAUDE.md`)*
 
   Add `Future<EncodedSticker> promoteStatic(Uint8List staticWebp)`: re-encode a static image as an
   animated WebP of **≥2 identical frames**, each ≥8 ms. Used when a static sticker joins an animated
@@ -735,7 +749,8 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
   published sample. **If it rejects the promoted sticker, fall back to pack-type-chosen-at-creation**
   (Sticker.ly's model) and revisit Task 13's flow.
 
-- [ ] **Step 6: Commit & push** on `feat/encoder-animated`.
+- [x] **Step 6: Commit & push** — done on `feat/encoder-native` (shared with Task 5b, since both
+  hinge on the same encoding-stack decisions) rather than a separate `feat/encoder-animated`.
 
 ---
 

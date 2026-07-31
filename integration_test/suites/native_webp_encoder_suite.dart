@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:integration_test/integration_test.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/core/whatsapp_spec.dart';
 import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
@@ -18,11 +17,7 @@ import 'package:whatsapp_sticker_studio/export/webp_media_probe.dart';
 /// The unit tests prove the *geometry* against a fake and the *channel contract*
 /// against a mock — neither can prove that Android produced valid WebP bytes.
 /// That claim needs real hardware, so it lives here. Run with:
-///
-///     flutter test integration_test/native_webp_encoder_test.dart -d <device-id>
-void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
+void nativeWebpEncoderTests() {
   final encoder = StaticEncoder(NativeWebpEncoder());
   const probe = WebpMediaProbe();
 

@@ -5,7 +5,6 @@ import 'package:ffmpeg_kit_flutter_new_video/return_code.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:integration_test/integration_test.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/core/whatsapp_spec.dart';
 import 'package:whatsapp_sticker_studio/encoder/animated_encoder.dart';
@@ -16,11 +15,7 @@ import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
 /// Sources are generated on-device by ffmpeg rather than committed as binary
 /// fixtures, which also keeps the decode path honest: a GIF and an MP4 are both
 /// exercised, since real inputs arrive as Giphy/X mp4s and gallery GIFs.
-///
-///     flutter test integration_test/animated_encoder_test.dart -d <device-id>
-void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
+void animatedEncoderTests() {
   late Directory work;
   final encoder = AnimatedEncoder();
 

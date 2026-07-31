@@ -6,7 +6,6 @@ import 'package:ffmpeg_kit_flutter_new_video/return_code.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:integration_test/integration_test.dart';
 
 /// Task 6 Step 1 — the gate before any `AnimatedEncoder` code is written.
 ///
@@ -14,11 +13,7 @@ import 'package:integration_test/integration_test.dart';
 /// This proves it by running ffmpeg on the device. If it fails, the package
 /// variant must change *first* — implementing against a build that cannot mux
 /// animated WebP would be wasted work.
-///
-///     flutter test integration_test/ffmpeg_webp_probe_test.dart -d <device-id>
-void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
+void ffmpegWebpProbeTests() {
   late Directory work;
 
   setUp(() async {

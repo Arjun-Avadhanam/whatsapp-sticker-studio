@@ -71,6 +71,80 @@ genuinely animated. Never show the user a mixed-kind error.
 - Can a pack's `animated_sticker_pack` flag flip after install? Undocumented in every source. Weak
   signal suggests it may be sticky.
 
+## Encoding stack (decided + device-verified 2026-07-29)
+
+**Static WebP uses Android's built-in encoder, not ffmpeg.** `Bitmap.compress(WEBP_LOSSY)` behind a
+`MethodChannel` (`WebpEncoderChannel.kt` ↔ `lib/encoder/native_webp_encoder.dart`), walking quality
+**100→90→…→50** and stopping at the first result ≤ 100 KB. No dependency, and it compresses in
+memory — routing six ladder attempts through ffmpeg would mean six process spawns and six temp-file
+round-trips on every live-preview refresh. `WebpEncoder` stays an injected interface, so this is
+cheap to swap if it ever disappoints.
+
+- **Verified on device:** lossy WebP **preserves alpha**, so `pad`'s letterbox bars stay transparent.
+  This was the main risk in not using libwebp directly. Settled — don't re-litigate.
+- **Refuses rather than overshoots:** if quality 50 still exceeds the ceiling it throws
+  `EncoderException`. Overshooting silently would resurface as an opaque WhatsApp rejection at export,
+  long after the user made the sticker.
+- **Threading:** encode on a background `Executor`; post **both** success and error replies back via
+  `Handler(Looper.getMainLooper())` — `MethodChannel.Result` is not thread-safe.
+- **Pixel packing:** explicit `setPixels` with `0xAARRGGBB` ints, **never** `copyPixelsFromBuffer`
+  (raw byte copy assuming an in-memory order that isn't RGBA everywhere; silently swaps red/blue).
+  Kotlin's `Byte` is signed, so each channel needs `and 0xFF`.
+- **Test fixtures:** uniform random noise is maximum-entropy and fits under 100 KB at *no* quality
+  (139 KB at q50). Use structured photo-like fixtures to exercise the ladder; keep noise only to pin
+  the refusal path.
+
+**Animated WebP still needs ffmpeg — Android has no built-in animated-WebP encoder at any API
+level.** `ffmpeg_kit_flutter` is **retired** (2026-01-06; binaries pulled 2026-04-01 — it cannot
+build). Use **`ffmpeg_kit_flutter_new_video`** (LGPL, FFmpeg 8.1.2, minSdk 24): the smallest
+maintained variant carrying libwebp, avoiding the x264/x265 **GPL** obligations of the full variants.
+It emits a Kotlin-Gradle-Plugin deprecation warning; harmless now.
+
+**Device-verified 2026-07-29 (Task 6 Step 1).** Runtime reports variant `video` with
+`[dav1d, fontconfig, freetype, fribidi, iconv, kvazaar, libass, libtheora, libvorbis, libvpx,
+libwebp, snappy, zimg]` and genuinely muxes multi-frame WebP (`[VP8X, ANIM, ANMF×6]`). Note there is
+**no H.264 *encoder*** (x264 is GPL and correctly absent) — irrelevant to us, since we only *decode*
+H.264 (built-in decoder) and only *encode* WebP.
+
+**Animated-WebP cost is ~LINEAR IN FRAME COUNT — the plan's inter-frame-compression assumption is
+WRONG for this toolchain.** Measured on device: 10 identical frames = **10.09×** one frame, 40 =
+**40.28×**, and moving content came within **2%** of identical content. Consequences:
+- Usable frames ≈ **500 KB ÷ per-frame cost**. A simple sticker (flat background, small moving
+  subject) runs ~1.8 KB/frame and *can* fill the full 10 s; detailed/high-frequency content runs
+  several KB/frame and **cannot** — 10 s stickers are only reachable for simple art.
+- **fps and duration are the dominant levers**, so the fps-first degradation ladder is right, and
+  Task 13's UI should push *trimming* over quality when a clip won't fit.
+- Still **encode and measure** rather than predicting: per-frame cost varies with content.
+
+**Use `-c:v libwebp_anim` for real clips, but `-c:v libwebp` for `promoteStatic`.** `libwebp_anim`
+drives libwebp's `WebPAnimEncoder` (frame diffing + disposal) and measured ~16% smaller. But it
+diffs *identical* frames to nothing and **collapses them into a single frame** — which is exactly
+what promotion depends on, and a 1-frame file is rejected by WhatsApp like a static one. Verified on
+device. Promotion loses nothing by using the plain encoder: two frames of a still are tiny against
+the 500 KB budget.
+
+**Testing the encoders (learned the slow way):**
+- Keep the phone awake: `adb shell svc power stayon usb`. A locking screen suspends the test app.
+- **Clear stale adb forwards before every device-test run:**
+  `adb forward --remove-all`. `flutter test` allocates a VM-service port forward per run and **leaks
+  it** — especially when a run is interrupted. They accumulate (5 seen in one session), and the
+  host↔device handshake then intermittently fails: the app launches, sits in the foreground doing
+  nothing, and `flutter test` waits forever with no output. Diagnosed 2026-07-29 after it silently
+  ate most of a session. Check with `adb forward --list`.
+- **Device-test overhead is per FILE, and it dominates.** `flutter test integration_test -d <id>`
+  does **not** amortize the build across files — Flutter reruns `assembleDebug` **and reinstalls the
+  APK for every test file**. Measured 2026-07-29: a 13-test run took **~17 min wall-clock of which
+  only ~2 min was actual testing**; the rest was three build+install cycles. Installs of this debug
+  APK (it carries the ffmpeg native libs) can take **many minutes** on this device, printing nothing
+  while they wait — **a slow install is not a hang**; don't kill it.
+  **Fix: keep device tests in ONE entry-point file** that calls per-area groups, so a run costs one
+  build and one install instead of N.
+- **Generate fixtures with ffmpeg (`-f lavfi -i testsrc2=…`, `color`, `noise`), not per-pixel Dart
+  loops** — the loops dominated runtime (~6 min → ~1.3 min for the animated suite).
+- For a genuinely unencodable fixture, `testsrc2` alone is **not** hard enough (mostly static bars,
+  diffs away). Add `noise=alls=90:allf=t`, and emit mp4 not gif so a 256-colour palette doesn't
+  quantise the noise back into something compressible.
+
 ## X/Twitter extractor service (`services/extractor/`)
 
 FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only
@@ -94,6 +168,55 @@ Twitter-format break is fixed by upgrading yt-dlp, not shipping a new app build.
 
 To run locally: `pip install -r services/extractor/requirements.txt` then
 `uvicorn main:app` from `services/extractor/`.
+
+## Connecting the Android device (WSL2) — solved 2026-07-29, don't re-derive
+
+**A USB cable alone does nothing: WSL2 has no USB stack.** The phone attaches to the Windows kernel;
+WSL is a separate VM, so `adb devices` in WSL is empty by design — it is not an adb bug. (Wireless
+`adb pair` also fails here under NAT networking with `protocol fault (couldn't read status message)`.
+The sibling DaySync project never solved this and sideloaded APKs to `/mnt/c/Users/arjun/Downloads/`
+instead — viable, but it gives up hot reload, logcat and `integration_test`, so it is not our route.)
+
+**Working setup — `usbipd-win` forwards the USB device into WSL.** Device: **A059P, Android 16
+(API 36)**, serial `00178358P000397`, USB id `18d1:4e11`, usbipd **BUSID 2-4**.
+
+One-time (Windows PowerShell **as admin**; `winget install usbipd`):
+```powershell
+usbipd bind --busid 2-4        # once per device; survives reboots
+```
+Per session, after each replug/reboot (this one does **not** need admin, so it can be run from WSL):
+```bash
+"/mnt/c/Program Files/usbipd-win/usbipd.exe" attach --wsl --busid 2-4
+~/Android/Sdk/platform-tools/adb kill-server   # REQUIRED after every re-attach
+~/Android/Sdk/platform-tools/adb devices -l    # restarts the server; phone appears
+```
+
+**`attach` alone is not enough — restart the adb server after it.** A server that was already running
+does not rescan, so `adb devices` stays empty despite a successful attach. This looks identical to a
+failed attach; `lsusb | grep -i google` distinguishes them — if the phone is listed there, the attach
+worked and only the stale adb server is at fault.
+One-time in WSL (needs a **real terminal** — sudo can't prompt for a password through Claude Code):
+```bash
+sudo tee /etc/udev/rules.d/51-android.rules >/dev/null \
+  <<< 'SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0666", GROUP="plugdev"'
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+**Three failure modes, each with a distinct symptom:**
+- `attach` → **"Device busy (exported)"** — a **Windows** adb server has claimed the phone. Fix:
+  `"/mnt/c/Users/arjun/AppData/Local/Android/Sdk/platform-tools/adb.exe" kill-server`. Note that
+  running `adb.exe devices` **restarts** that daemon, re-breaking it — don't re-query after killing.
+- `adb devices` → **"no permissions"** — the udev rule is missing or hasn't applied yet.
+  `udevadm trigger` is **asynchronous**, so adb can scan too early; just restart adb afterwards.
+- `adb devices` → **"unauthorized"** — permissions are fine; accept the *"Allow USB debugging?"*
+  prompt on the phone (tick *Always allow*).
+
+Four WSL distros are installed and `Ubuntu-20.04` is the default, but **this project lives in
+`Ubuntu-22.04`**. usbipd reports attaching via the default distro; that's fine — WSL2 distros share
+one kernel, so the device is visible in all of them.
+
+Verify with `flutter devices`; run device tests with
+`flutter test integration_test/<file> -d 00178358P000397`.
 
 ## Local dev setup (WSL/Ubuntu)
 - Flutter SDK lives at `~/flutter`. Non-interactive shells don't read `~/.bashrc`, so scripts must

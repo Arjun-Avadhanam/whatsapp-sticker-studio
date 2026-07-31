@@ -49,8 +49,24 @@ dependencies:
   # Sources (Task 8/8B): HTTP for Giphy search and the X-link extractor client.
   http: ^1.2.2
 
+  # Animated encoding (Task 6): frame extraction + animated-WebP muxing.
+  #
+  # NOT `ffmpeg_kit_flutter` — that package was RETIRED 2026-01-06 and its native
+  # binaries were pulled from Maven Central on 2026-04-01, so it cannot build.
+  # This is the maintained community fork. The `_video` variant is the smallest
+  # one that ships **libwebp** (which we need to mux animated WebP); the `_full`
+  # and unsuffixed variants add x264/x265 under **GPL**, whose obligations would
+  # attach to the distributed app. We only *decode* H.264 (FFmpeg's built-in
+  # decoder, no external lib) and only *encode* WebP, so LGPL `_video` is enough.
+  ffmpeg_kit_flutter_new_video: ^2.4.3
+
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+
+  # On-device tests (Tasks 5b/6): the native WebP encoders can only be exercised
+  # on real hardware — `flutter test` has no platform side to answer the channel.
+  integration_test:
     sdk: flutter
 
   # drift code generation (Task 3): run `dart run build_runner build`.

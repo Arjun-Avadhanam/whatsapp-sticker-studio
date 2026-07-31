@@ -57,6 +57,18 @@ class EncoderException implements Exception {
   String toString() => 'EncoderException: $message';
 }
 
+/// The input decoded fine but could not be squeezed under its size ceiling.
+///
+/// Separate from a plain [EncoderException] because the *remedy* differs and
+/// only the user can apply it: trimming the clip shortens the animation and is
+/// usually far more effective than any further quality drop. The Maker should
+/// say so rather than reporting a generic failure.
+class EncoderBudgetException extends EncoderException {
+  const EncoderBudgetException(super.message);
+  @override
+  String toString() => 'EncoderBudgetException: $message';
+}
+
 /// Turns raw media into a compliant 512×512 WebP sticker.
 abstract class Encoder {
   Future<EncodedSticker> encode(MediaHandle input, EncodeParams params);

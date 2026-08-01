@@ -143,10 +143,14 @@ void main() {
       // — a crash on completely normal user input.
       await save([stickerOf(id: '1', manualName: "Arjun's face")]);
 
+      // `expect(() async => ..., returnsNormally)` would pass vacuously here:
+      // it only proves the closure returns a Future without throwing
+      // *synchronously*, so the query itself is never awaited and any real
+      // failure surfaces long after the test has finished. Await each one.
       for (final q in ['"', "Arjun's", 'a*', '^b', '(c)', 'AND', 'x OR y']) {
-        expect(
-          () async => search.query(q),
-          returnsNormally,
+        await expectLater(
+          search.query(q),
+          completes,
           reason: 'query "$q" must not throw',
         );
       }

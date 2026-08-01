@@ -1040,13 +1040,12 @@ test('usageCount breaks ties in ranking', () async {
 
 - [x] **Step 2: Run → FAIL.**
 - [x] **Step 3: Implement keyword search** via FTS5 over the blob; final score = `textMatchScore + usageWeight * log(1 + usageCount)`.
-- [~] **Step 4: Add semantic layer (FREE):** verify/choose an on-device TFLite sentence-embedding model; embed each `searchBlob` on index and the query at search time; blend cosine similarity into the score. FTS5 remains the fallback if embeddings are unavailable. Add a semantic test ("puppy" retrieves a sticker tagged "dog").
+- [x] **Step 4: Add semantic layer (FREE):** verify/choose an on-device TFLite sentence-embedding model; embed each `searchBlob` on index and the query at search time; blend cosine similarity into the score. FTS5 remains the fallback if embeddings are unavailable. Add a semantic test ("puppy" retrieves a sticker tagged "dog").
 - [x] **Step 5: Run → PASS.** *(115 unit tests; analyze + format clean.)*
 - [x] **Step 6: Commit & push** on `feat/search`.
 
-  *(Actual, 2026-08-01 — the **keyword half is done and device-free**; **Step 4 (semantic) is
-  DEFERRED** to a device session, batched with Task 9's ML Kit work. Do not read this task as
-  finished. Full detail in `CLAUDE.md`'s "Search" section.)*
+  *(Actual, 2026-08-01 — **Task 10 is COMPLETE**: keyword half device-free, semantic half
+  device-verified the same day. Full detail in `CLAUDE.md`'s "Search" section.)*
   - *Host SQLite **has FTS5**, so all of this is testable with no phone attached.*
   - ***The index is maintained inside `DriftLibraryStore.saveSticker`***, *not by callers — every
     mutating method funnels through it, so `updateMetadata`/`setAutoTags`/`incrementUsage` are
@@ -1060,6 +1059,17 @@ test('usageCount breaks ties in ranking', () async {
     sticker cannot outrank far better text matches.*
   - ***User input is never passed raw to `MATCH`***: FTS5 is a query language, so an apostrophe in
     "Arjun's face" would otherwise be a syntax error — a crash on ordinary input.*
+  - ***Semantic layer: MediaPipe Universal Sentence Encoder***, *5.8 MB (measured), 100-dimensional,
+    bundled as an Android asset and driven from Kotlin — **not** `tflite_flutter`, because USE needs
+    SentencePiece tokenisation that a raw TFLite interpreter cannot supply.*
+  - ***USE similarities are COMPRESSED: `cosine(dog,puppy)=0.980` but `cosine(dog,car)=0.940`.***
+    *No absolute threshold separates related from unrelated, so ranking is **relative** — top-K,
+    rescaled to best=1/worst=0, with a margin on the observed spread; a flat spread returns nothing.
+    The first implementation used an absolute floor of 0.35, shipped green, and was returning the
+    whole library on every query. Only reading the device numbers caught it.*
+  - ***Two test smells that let it through:*** *`contains(expected)` is satisfied by returning
+    everything — assert the distractor is excluded; and
+    `expect(() async => f(), returnsNormally)` passes vacuously, never awaiting the future.*
 
 ---
 

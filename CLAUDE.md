@@ -286,9 +286,38 @@ schema migration, and repairing a drifted index.
   `^`, `(`, `)` are operators and AND/OR/NOT/NEAR are keywords — an apostrophe in "Arjun's face"
   would be a syntax error, i.e. a crash on ordinary input. Each term is quoted into a literal phrase.
 
-**Deferred (needs a device): the semantic layer** (Task 10 Step 4) — an on-device TFLite
-sentence-embedding model blended into the score, with FTS5 as the fallback. Batch it with Task 9's
-ML Kit work. Open risk: whether a free model small enough to ship in the APK exists at all.
+**Semantic layer — DONE and device-verified 2026-08-01.** MediaPipe **Universal Sentence Encoder**
+(`com.google.mediapipe:tasks-text`), model bundled at
+`android/app/src/main/assets/universal_sentence_encoder.tflite`.
+
+- **5.8 MB** — measured, not guessed. (BERT embedder is 24.9 MB; USE is the affordable one.) Output
+  is **100-dimensional**, not the 512 the docs imply.
+- **Kotlin `TextEmbedderChannel`, not `tflite_flutter`.** USE needs **SentencePiece tokenisation** to
+  turn text into token ids; a raw TFLite interpreter only exposes tensors, so that tokeniser would
+  have to be reimplemented in Dart. MediaPipe does it natively from the model's own metadata.
+- **`noCompress += "tflite"`** in `build.gradle.kts` — MediaPipe memory-maps the model straight out
+  of the APK, which only works on a stored (uncompressed) entry.
+- Embeddings live in a **`sticker_embeddings` table** (schema **v3**), Float32 blobs. Owned by
+  `SearchService`, **not** the store — unlike the FTS index — because producing one needs the native
+  model, and putting that in `LibraryStore` would make the store untestable without a device.
+
+**⚠️ USE similarities are COMPRESSED — never threshold on the absolute value.** Measured on device:
+`cosine(dog, puppy) = 0.980` but `cosine(dog, car) = **0.940**`. A 0.04 margin between related and
+unrelated, so **no absolute floor separates them**: a threshold low enough to admit a true match
+admits the entire library, and semantic search silently degrades into "return everything, slightly
+reordered". This was shipped and caught only by reading the device numbers — the tests passed.
+
+**The fix: rank relatively.** Take the top-K nearest, rescale so best = 1 and worst = 0, and require
+a candidate to clear `semanticMargin` of the observed *spread*. If the spread is flat (everything
+equally unrelated, or a one-item library) return nothing rather than presenting arbitrary stickers as
+matches. Result: `"puppy"` now returns `dog=2.000` and correctly excludes `car`.
+
+**Two test smells that let the bug through — worth recognising elsewhere:**
+- Asserting `contains(expected)` on a result list is satisfied by **returning everything**. Assert
+  the distractor is **excluded** too.
+- `expect(() async => f(), returnsNormally)` passes **vacuously**: it only proves the closure did not
+  throw *synchronously*, never awaits the future, and lets the work leak past teardown. Use
+  `await expectLater(f(), completes)`.
 
 ## Sources (Task 7)
 

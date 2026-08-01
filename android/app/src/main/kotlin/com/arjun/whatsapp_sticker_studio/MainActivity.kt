@@ -15,6 +15,9 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WebpEncoderChannel.CHANNEL)
             .setMethodCallHandler(WebpEncoderChannel())
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, TextEmbedderChannel.CHANNEL)
+            .setMethodCallHandler(TextEmbedderChannel(applicationContext))
+
         val export = StickerExportChannel(this)
         stickerExport = export
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, StickerExportChannel.CHANNEL)

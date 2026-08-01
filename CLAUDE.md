@@ -61,15 +61,29 @@ genuinely animated. Never show the user a mixed-kind error.
   does this promotion.
 - Promotion moves that sticker from the 100 KB to the 500 KB budget — quality goes *up*.
 
-**Unverified, needs an on-device test when a phone is available:**
-- Is the 3-sticker minimum actually enforced at runtime? Every source is a developer working *around*
-  it (apps reportedly pad with transparent stickers), never a statement of what WhatsApp does. Given
-  the independent-validation finding above, assume enforced until proven otherwise.
-- Does the ≥2-identical-frame promotion pass WhatsApp's **closed-source** validator? It passes every
-  documented check, but their validator is stricter than the sample. **Fallback if it fails:
-  pack-type-chosen-at-creation (Sticker.ly's model).**
-- Can a pack's `animated_sticker_pack` flag flip after install? Undocumented in every source. Weak
-  signal suggests it may be sticky.
+**ANSWERED ON DEVICE 2026-08-01 — WhatsApp `com.whatsapp` v2.26.27.85, A059P / Android 16.**
+Four packs were built from real encoder output, staged through our provider, and exported via
+`ENABLE_STICKER_PACK` (`integration_test/interactive_test.dart`). **All four installed, and the
+stickers render and send inside WhatsApp.** Record the WhatsApp version with any future re-test —
+their validation is closed-source and demonstrably varies between builds (issue #998).
+
+- **The ≥2-identical-frame promotion PASSES.** ✅ An all-animated pack whose stickers were statics
+  put through `AnimatedEncoder.promoteStatic` was accepted and is usable. **The silent-promotion
+  strategy is validated — Task 13 keeps it, and the pack-type-chosen-at-creation fallback is not
+  needed.** This was the decisive open question in the whole project.
+- **The 3-sticker minimum is NOT enforced at runtime on this build.** A 2-sticker pack *and* a
+  1-sticker pack both installed and are usable. **Do not design around this.** It is a documented
+  limit that WhatsApp validates independently and could re-enforce in any build; a pack is a
+  one-shot import, so a 2-sticker pack that installs here could fail for a user on a different
+  version with no recourse. Our validator keeps the 3-minimum as a deliberate safety margin — the
+  finding removes the need to *pad packs with transparent filler stickers*, which is what
+  competitors reportedly do, not a licence to ship undersized packs.
+- **Still unknown: can a pack's `animated_sticker_pack` flag flip after install?** Not probed;
+  undocumented everywhere. Weak signal suggests it may be sticky.
+- **Observed, needs confirming:** the adds appeared to complete **without a per-pack confirmation
+  dialog** (four packs in ~11 s). If real, that contradicts the spec's "a pack cannot be added
+  silently" assumption and means **our app must present its own confirmation** before exporting —
+  the user must never have a pack appear in WhatsApp without having asked for it.
 
 ## Encoding stack (decided + device-verified 2026-07-29)
 

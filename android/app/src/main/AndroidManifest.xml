@@ -3,10 +3,17 @@
         android:label="whatsapp_sticker_studio"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- launchMode is singleTask, NOT Flutter's default singleTop. A share
+             into a backgrounded app arrives from another task, and singleTop only
+             reuses an activity already on top of the *current* task — so Android
+             spawned a fresh instance (and a fresh Flutter engine) for every
+             share. The warm getMediaStream listener in the already-running engine
+             then never fired, dropping the share silently. Caught on device
+             2026-08-01 by the SOURCE 5 probe. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -23,6 +30,36 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- Share-into-app: registers us as an OS share target so a shared
+                 screenshot, screen recording or gallery item opens straight into
+                 the Maker. This rides the OS share sheet, not WhatsApp's sticker
+                 API, so it keeps working regardless of what WhatsApp changes.
+
+                 SEND and SEND_MULTIPLE are separate filters because a single
+                 filter matching both actions would also claim shares we cannot
+                 handle. image/* and video/* only — never */*, which would put us
+                 in the share sheet for PDFs and text we have no use for. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="video/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="video/*"/>
             </intent-filter>
         </activity>
         <!-- Serves staged sticker packs to WhatsApp. The authority is derived from the

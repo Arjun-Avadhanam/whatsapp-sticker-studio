@@ -254,6 +254,66 @@ one kernel, so the device is visible in all of them.
 Verify with `flutter devices`; run device tests with
 `flutter test integration_test/<file> -d 00178358P000397`.
 
+## Sources (Task 7)
+
+**`compileSdk` is pinned to 37 in `android/app/build.gradle.kts`, not `flutter.compileSdkVersion`
+(36).** `receive_sharing_intent` 1.9.0 declares an AAR-metadata minimum of 37 and the build fails
+outright below it (`checkDebugAarMetadata`). `compileSdk` only governs which APIs we may *reference*
+— it does not raise `minSdk` or `targetSdk`, so the API 36 test device is unaffected. AGP 9.0.1
+prints a "maximum recommended compile SDK is 36" warning; harmless. If a Flutter upgrade later moves
+`flutter.compileSdkVersion` past 37, drop the pin.
+
+**`image_picker` supplies NO mime type on Android — the extension fallback is the *primary* path.**
+Device-verified 2026-08-01: every gallery and camera pick returned `mimeType: (none supplied)`, so
+`MediaKindResolver`'s extension branch is what actually resolves the kind. A mime-first-only resolver
+would return `null` for every pick and nothing would work. Do not "simplify" that fallback away.
+
+**Share-in cannot be verified from `integration_test` — don't try, and don't treat its failure as a
+code bug.** Established on device 2026-08-01 after two misdiagnosed runs:
+- `flutter test` **uninstalls the app when a run ends**, and Android **caches recent share targets**,
+  so an icon tapped in the share sheet can point at a package that no longer exists — the share then
+  silently goes nowhere and looks exactly like a broken listener.
+- A share from another app **launches `MainActivity` into that app's task** (observed landing in the
+  Nothing Gallery's task `t3918`), i.e. a different activity instance and a different Flutter engine
+  from the one running the test. The test's warm `getMediaStream` listener can never hear it.
+
+**What IS proven** without that test: `pm query-activities --brief -a android.intent.action.SEND
+-t image/jpeg` returns `com.arjun.whatsapp_sticker_studio/.MainActivity`, and a real share does start
+our activity. Only "the Dart side receives the media" is unverified — observable at Task 15, once a
+real UI exists. The probe is kept but `skip`ped with that reasoning inline.
+
+**Careful reading the installed APK: `flutter test integration_test` overwrites
+`build/app/outputs/flutter-apk/app-debug.apk` with the TEST-entrypoint build.** Installing that
+by hand gives a black screen (the test bundle draws nothing and waits for a driver). Re-run
+`flutter build apk --debug` before sideloading the real app.
+
+**`launchMode` must be `singleTask`, not Flutter's default `singleTop`.** A share into a
+backgrounded app arrives from another task, and `singleTop` only reuses an activity already on top of
+the *current* task — so Android spawned a fresh instance and a fresh Flutter engine per share, and
+the warm `getMediaStream()` listener in the running engine never fired. The share vanished with no
+error. Caught on device by the SOURCE 5 probe, 2026-08-01.
+
+**Format support differs between the two paths, because they use different decoders.** Same shape
+either way (bytes → decode → fit to 512² → WebP), but stills decode in Dart and motion decodes in
+ffmpeg:
+- **Stills** — Dart `image` package: png, jpg/jpeg, webp, bmp (also gif, but gif routes to the
+  animated path). **It has NO HEIC/HEIF/AVIF decoder.**
+- **Motion** — ffmpeg: gif, mp4, mov, webm, mkv, avi, 3gp, m4v. Believed-good from the build's
+  demuxers/decoders (H.264 + HEVC built in, libvpx, dav1d) but **not yet observed end-to-end**.
+
+**HEIC is a real, unclosed gap.** It is a common phone camera format, so users will hit it.
+`MediaKindResolver` currently **rejects** heic/heif/avif up front so they fail as "unsupported
+format" rather than as "could not decode the image" on a photo the user can see in their gallery —
+that is a workaround, not a fix. Planned fix: fall back to transcoding via the ffmpeg we already
+ship when `img.decodeImage` fails, which covers anything ffmpeg knows, not just HEIC.
+
+**No Android permissions are required for the pickers, and none should be added.** On API 33+
+`image_picker` uses the system **Photo Picker**, which grants access to only the chosen item —
+`READ_MEDIA_IMAGES` would be an unnecessary sensitive permission that invites Play Store review
+scrutiny. Camera capture goes through `ACTION_IMAGE_CAPTURE`, which the camera app services; note
+that **declaring** `CAMERA` would *make it mandatory* at runtime, so declaring it is strictly worse
+than not.
+
 ## Local dev setup (WSL/Ubuntu)
 - Flutter SDK lives at `~/flutter`. Non-interactive shells don't read `~/.bashrc`, so scripts must
   `export PATH="$HOME/flutter/bin:$PATH"` before calling `flutter`.

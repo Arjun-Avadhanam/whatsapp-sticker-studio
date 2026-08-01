@@ -49,6 +49,15 @@ dependencies:
   # Sources (Task 8/8B): HTTP for Giphy search and the X-link extractor client.
   http: ^1.2.2
 
+  # Sources (Task 7): gallery/camera pickers and the OS share-in target.
+  #
+  # image_picker needs NO Android storage permission — on API 33+ it goes through
+  # the system Photo Picker, which grants access to just the chosen item. Adding
+  # READ_MEDIA_IMAGES would be an unnecessary sensitive permission and invites
+  # Play Store review scrutiny for nothing. Only camera capture needs one.
+  image_picker: ^1.2.3
+  receive_sharing_intent: ^1.9.0
+
   # Animated encoding (Task 6): frame extraction + animated-WebP muxing.
   #
   # NOT `ffmpeg_kit_flutter` — that package was RETIRED 2026-01-06 and its native

@@ -6,7 +6,12 @@ plugins {
 
 android {
     namespace = "com.arjun.whatsapp_sticker_studio"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned to 37 rather than flutter.compileSdkVersion (36): receive_sharing_intent
+    // 1.9.0 declares an AAR metadata minimum of 37 and the build fails outright
+    // below it. compileSdk only controls which APIs we may reference — it does not
+    // raise minSdk or targetSdk, so the API 36 test device is unaffected.
+    // AGP 9.0.1 prints a "maximum recommended compile SDK is 36" warning; harmless.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

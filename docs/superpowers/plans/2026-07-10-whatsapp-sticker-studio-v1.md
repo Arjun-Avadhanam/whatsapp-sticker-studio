@@ -772,10 +772,10 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
 > Maker — the same "Share → …" gesture users know, and **API-independent** (it does not touch the
 > WhatsApp sticker API, so it survives any change to that API). Treat it as a headline feature.
 
-- [ ] **Step 1: Write the contract test** — `FakeSource` returns a `MediaHandle`; assert non-null bytes and a valid `MediaKind`; a cancelling source returns `null`.
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** `GallerySource`/`CameraSource` over `image_picker`; map picked files → `MediaHandle` (infer `MediaKind` from mime/extension). `pick()` returns `null` on cancel.
-- [ ] **Step 3b: Implement the share-in target** — `ShareInSource` over `receive_sharing_intent`:
+- [x] **Step 1: Write the contract test** — `FakeSource` returns a `MediaHandle`; assert non-null bytes and a valid `MediaKind`; a cancelling source returns `null`.
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Implement** `GallerySource`/`CameraSource` over `image_picker`; map picked files → `MediaHandle` (infer `MediaKind` from mime/extension). `pick()` returns `null` on cancel.
+- [x] **Step 3b: Implement the share-in target** — `ShareInSource` over `receive_sharing_intent`:
   - Android manifest: add `<intent-filter>` for `ACTION_SEND` and `ACTION_SEND_MULTIPLE` on
     `image/*` and `video/*` to the launcher activity.
   - Handle **both** delivery cases the package exposes: the **cold-start** stream
@@ -784,9 +784,31 @@ testWidgets('animated encode ≤500KB, ≤10s, 512²', (t) async {
   - Map the shared file(s) → `MediaHandle`, inferring `MediaKind` from mime/extension.
   - **iOS Share Extension is deferred with iOS** (project is Android-only). Note this in `CLAUDE.md`
     so it is a known gap, not a forgotten one.
-- [ ] **Step 4: Run contract test → PASS.** (Real picker + real share-sheet flows verified manually
+- [x] **Step 4: Run contract test → PASS.** (Real picker + real share-sheet flows verified manually
   on device — the share intent-filters and cold/warm streams can only be exercised on a phone.)
-- [ ] **Step 5: Commit & push** on `feat/sources`.
+- [x] **Step 5: Commit & push** on `feat/sources`.
+
+  *(Actual, 2026-08-01, device-verified on A059P / Android 16.)*
+  - *Pickers confirmed with real phone media: gallery image 682 KB → 70 KB static; **gallery video
+    1.5 MB → 463 KB animated, 72 frames**; camera photo 1 MB → 67 KB; cancel returns `null`.*
+  - ***`image_picker` supplies NO mime type on Android*** *— every pick reported "(none supplied)".
+    `MediaKindResolver`'s extension branch is the **primary** path, not a fallback; a mime-first-only
+    resolver returns `null` for every pick. Do not "simplify" it away.*
+  - ***`launchMode` must be `singleTask`***, *not Flutter's default `singleTop`: a share into a
+    backgrounded app arrives from another task.*
+  - ***Format support is narrower than assumed.*** *`heic`/`heif`/`avif` are **rejected** — the Dart
+    `image` package has no decoder for them and HEIC is a common phone camera format. Rejecting is a
+    workaround; the fix (ffmpeg transcode fallback) is tracked separately.*
+  - ***`compileSdk` pinned to 37*** *— `receive_sharing_intent` fails the build below it. Does not
+    raise `minSdk`/`targetSdk`.*
+  - ***No Android permissions added, deliberately*** *— the Photo Picker grants per-item access, and
+    declaring `CAMERA` would only make it mandatory at runtime.*
+  - ***Warm share-in is NOT verifiable from `integration_test`*** *and its probe is `skip`ped with the
+    reasoning inline: `flutter test` uninstalls the app at the end of a run (so a cached share-sheet
+    icon points at a missing package), and a real share launches `MainActivity` into the **sharing**
+    app's task — a different Flutter engine from the test's. **Proven anyway:** the OS resolves us as
+    a share target and a real share starts our activity. Only Dart-side receipt is unverified —
+    observable at **Task 15**, where the cold path should be checked too.*
 
 ---
 

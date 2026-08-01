@@ -24,6 +24,36 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Share-into-app: registers us as an OS share target so a shared
+                 screenshot, screen recording or gallery item opens straight into
+                 the Maker. This rides the OS share sheet, not WhatsApp's sticker
+                 API, so it keeps working regardless of what WhatsApp changes.
+
+                 SEND and SEND_MULTIPLE are separate filters because a single
+                 filter matching both actions would also claim shares we cannot
+                 handle. image/* and video/* only — never */*, which would put us
+                 in the share sheet for PDFs and text we have no use for. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="video/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="video/*"/>
+            </intent-filter>
         </activity>
         <!-- Serves staged sticker packs to WhatsApp. The authority is derived from the
              package name in StickerContentProvider.onCreate(), so the two cannot drift.

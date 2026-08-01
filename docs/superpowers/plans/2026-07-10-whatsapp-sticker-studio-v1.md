@@ -1040,8 +1040,8 @@ test('usageCount breaks ties in ranking', () async {
 abstract class Exporter { Future<void> addPackToWhatsApp(PackRecord pack, List<StickerRecord> stickers); }
 ```
 
-- [ ] **Step 1: Verify approach** — check whether a maintained Flutter WhatsApp-sticker package supports **animated** packs. If yes, use it and skip hand-writing the provider; if no, implement `StickerContentProvider.kt` mirroring the official `WhatsApp/stickers` sample (four content URIs; metadata incl. `animated_sticker_pack`). Record the decision in `CLAUDE.md`.
-- [ ] **Step 2: Write failing test** — `addPackToWhatsApp` throws `PackNotValidException` (surfacing `ValidationResult.problems`) when the pack is invalid, and does **not** fire the intent:
+- [x] **Step 1: Verify approach** — check whether a maintained Flutter WhatsApp-sticker package supports **animated** packs. If yes, use it and skip hand-writing the provider; if no, implement `StickerContentProvider.kt` mirroring the official `WhatsApp/stickers` sample (four content URIs; metadata incl. `animated_sticker_pack`). Record the decision in `CLAUDE.md`.
+- [x] **Step 2: Write failing test** — `addPackToWhatsApp` throws `PackNotValidException` (surfacing `ValidationResult.problems`) when the pack is invalid, and does **not** fire the intent:
 
 ```dart
 test('export blocks invalid pack', () async {
@@ -1051,8 +1051,8 @@ test('export blocks invalid pack', () async {
 });
 ```
 
-- [ ] **Step 3: Run → FAIL.**
-- [ ] **Step 4: Implement** — validate first (Task 4); on pass, fire `com.whatsapp.intent.action.ENABLE_STICKER_PACK` with `sticker_pack_id`, `sticker_pack_authority`, `sticker_pack_name` via the MethodChannel; serve assets through the provider.
+- [x] **Step 3: Run → FAIL.**
+- [x] **Step 4: Implement** — validate first (Task 4); on pass, fire `com.whatsapp.intent.action.ENABLE_STICKER_PACK` with `sticker_pack_id`, `sticker_pack_authority`, `sticker_pack_name` via the MethodChannel; serve assets through the provider.
 
 > **Researched 2026-07-18 — three non-obvious API realities (details in `CLAUDE.md`):**
 > - **Do not set `avoid_cache`**, in either direction. WhatsApp is deprecating it (issue #1089) and
@@ -1066,14 +1066,33 @@ test('export blocks invalid pack', () async {
 >   does not sync with the source app post-import. Do not design features assuming an installed pack
 >   stays in sync with our library.
 
-- [ ] **Step 4b: Verify the unverified** *(added — needs a physical device; see `CLAUDE.md`)*
+- [x] **Step 4b: Verify the unverified** *(added — needs a physical device; see `CLAUDE.md`)*
   With WhatsApp installed, test through our own provider: (a) does a **1- or 2-sticker pack** install,
   or is the documented 3-minimum actually enforced? (b) does a static image encoded as a
   **single-frame animated WebP** install inside an animated pack? Both are currently inferences, and
   (b) determines whether Task 4's mixed-kind rule can be relaxed into a conversion path. Record the
   answers in `CLAUDE.md`.
-- [ ] **Step 5: Run unit test → PASS.** Then on a device with WhatsApp: build a valid pack → tap Add → confirm the pack appears in WhatsApp.
-- [ ] **Step 6: Commit & push** on `feat/exporter`.
+
+  *(Actual, 2026-08-01, WhatsApp **v2.26.27.85** on A059P / Android 16 — four packs built from real
+  encoder output, staged through our provider, exported via the intent. **All four installed and the
+  stickers render and send.** Full detail in `CLAUDE.md`.*
+  - ***The ≥2-identical-frame promotion PASSES.*** *An all-animated pack of promoted statics was
+    accepted. The silent-promotion strategy stands; the pack-type-chosen-at-creation fallback is
+    **not** needed and Task 13 Step 3b is unchanged. This was the project's largest design risk.*
+  - ***The 3-sticker minimum is NOT enforced on this build*** *— 1- and 2-sticker packs both
+    installed. **Deliberately not acted on:** it is a documented limit, WhatsApp re-validates
+    independently and could re-enforce it, and a pack is a one-shot import, so an undersized pack
+    that works here could fail for another user with no recourse. What it does buy us is that
+    **padding packs with transparent filler stickers is unnecessary**.*
+  - *Sub-question (b) from the original step — the **single**-frame animated WebP — was **not**
+    tested: it is already settled on paper (the validator checks `getFrameCount() <= 1`), so device
+    time went to the two-frame promotion instead.*
+  - ***Still open:*** *can `animated_sticker_pack` flip after install? Not probed.*
+  - ***New observation:*** *the adds completed with **no per-pack confirmation dialog** (~11 s for
+    four packs). If confirmed, the spec's "a pack cannot be added silently" does not hold, and
+    **our app must present its own confirmation** — see Task 13.)*
+- [x] **Step 5: Run unit test → PASS.** Then on a device with WhatsApp: build a valid pack → tap Add → confirm the pack appears in WhatsApp.
+- [x] **Step 6: Commit & push** on `feat/exporter`.
 
 ---
 
@@ -1134,6 +1153,20 @@ abstract class SharingService {
   reviews found *zero* users who correctly diagnosed it — they blame paywalls and bugs. Apps that
   accept the sticker then fail at export earn *"I wasted literally 20 mins"*. Promotion is the only
   approach users praise.
+
+  **Validated on device 2026-08-01 (Task 11 Step 4b): WhatsApp accepts the promoted pack.** Build
+  this step as written — the fallback is not needed.
+
+- [ ] **Step 3c: The app must show its OWN "Add to WhatsApp?" confirmation** *(added 2026-08-01)*
+
+  Task 11's device probes exported four packs in ~11 s with **no per-pack confirmation dialog from
+  WhatsApp**. The spec assumed WhatsApp always asks ("a pack cannot be added silently — user
+  confirms each Add"); on v2.26.27.85 it did not. So the guarantee has to come from us.
+
+  Never fire the export intent as a side effect of another action. A user must never discover a pack
+  in WhatsApp they did not explicitly ask for — that is both a trust problem and, at scale, the kind
+  of behaviour that gets an app reported. Show the pack name and sticker count, and require an
+  explicit tap.
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit & push** on `feat/maker-ui`.
 

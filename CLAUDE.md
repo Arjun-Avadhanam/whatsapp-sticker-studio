@@ -263,6 +263,36 @@ outright below it (`checkDebugAarMetadata`). `compileSdk` only governs which API
 prints a "maximum recommended compile SDK is 36" warning; harmless. If a Flutter upgrade later moves
 `flutter.compileSdkVersion` past 37, drop the pin.
 
+**`image_picker` supplies NO mime type on Android — the extension fallback is the *primary* path.**
+Device-verified 2026-08-01: every gallery and camera pick returned `mimeType: (none supplied)`, so
+`MediaKindResolver`'s extension branch is what actually resolves the kind. A mime-first-only resolver
+would return `null` for every pick and nothing would work. Do not "simplify" that fallback away.
+
+**Share-in cannot be verified from `integration_test` — don't try, and don't treat its failure as a
+code bug.** Established on device 2026-08-01 after two misdiagnosed runs:
+- `flutter test` **uninstalls the app when a run ends**, and Android **caches recent share targets**,
+  so an icon tapped in the share sheet can point at a package that no longer exists — the share then
+  silently goes nowhere and looks exactly like a broken listener.
+- A share from another app **launches `MainActivity` into that app's task** (observed landing in the
+  Nothing Gallery's task `t3918`), i.e. a different activity instance and a different Flutter engine
+  from the one running the test. The test's warm `getMediaStream` listener can never hear it.
+
+**What IS proven** without that test: `pm query-activities --brief -a android.intent.action.SEND
+-t image/jpeg` returns `com.arjun.whatsapp_sticker_studio/.MainActivity`, and a real share does start
+our activity. Only "the Dart side receives the media" is unverified — observable at Task 15, once a
+real UI exists. The probe is kept but `skip`ped with that reasoning inline.
+
+**Careful reading the installed APK: `flutter test integration_test` overwrites
+`build/app/outputs/flutter-apk/app-debug.apk` with the TEST-entrypoint build.** Installing that
+by hand gives a black screen (the test bundle draws nothing and waits for a driver). Re-run
+`flutter build apk --debug` before sideloading the real app.
+
+**`launchMode` must be `singleTask`, not Flutter's default `singleTop`.** A share into a
+backgrounded app arrives from another task, and `singleTop` only reuses an activity already on top of
+the *current* task — so Android spawned a fresh instance and a fresh Flutter engine per share, and
+the warm `getMediaStream()` listener in the running engine never fired. The share vanished with no
+error. Caught on device by the SOURCE 5 probe, 2026-08-01.
+
 **Format support differs between the two paths, because they use different decoders.** Same shape
 either way (bytes → decode → fit to 512² → WebP), but stills decode in Dart and motion decodes in
 ffmpeg:

@@ -18,6 +18,8 @@ import 'package:whatsapp_sticker_studio/export/webp_media_probe.dart';
 import 'package:whatsapp_sticker_studio/models/pack_record.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
 
+import 'suites/source_probe_suite.dart';
+
 /// **INTERACTIVE — requires a human to tap WhatsApp's confirmation dialog.**
 ///
 /// Deliberately a separate entry point from `device_test.dart`: these tests hand
@@ -233,4 +235,6 @@ void main() {
       await fireRaw(pack),
     );
   }, timeout: longEnoughToTap);
+
+  group('sources (Task 7)', sourceProbeTests);
 }

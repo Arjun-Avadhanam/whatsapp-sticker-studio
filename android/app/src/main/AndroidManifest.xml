@@ -3,10 +3,17 @@
         android:label="whatsapp_sticker_studio"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- launchMode is singleTask, NOT Flutter's default singleTop. A share
+             into a backgrounded app arrives from another task, and singleTop only
+             reuses an activity already on top of the *current* task — so Android
+             spawned a fresh instance (and a fresh Flutter engine) for every
+             share. The warm getMediaStream listener in the already-running engine
+             then never fired, dropping the share silently. Caught on device
+             2026-08-01 by the SOURCE 5 probe. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"

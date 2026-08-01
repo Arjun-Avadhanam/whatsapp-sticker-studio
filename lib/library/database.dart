@@ -73,6 +73,53 @@ class Packs extends Table {
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
+  /// Name of the FTS5 index backing search (Task 10).
+  static const String searchTable = 'sticker_search';
+
+  /// Semantic-search vectors, one row per sticker (Task 10 Step 4).
+  static const String embeddingTable = 'sticker_embeddings';
+
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 3;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+      await _createSearchIndex();
+      await _createEmbeddingTable();
+    },
+    onUpgrade: (m, from, to) async {
+      // Explicit, additive migrations — never `fallbackToDestructiveMigration`.
+      // A user's sticker library is not disposable, and both of these are
+      // derived data that rebuild from the Stickers table anyway.
+      if (from < 2) await _createSearchIndex();
+      if (from < 3) await _createEmbeddingTable();
+    },
+  );
+
+  /// The search index is a **virtual** FTS5 table, so it is created with raw
+  /// SQL rather than a generated drift table — drift's Dart table API has no
+  /// first-class virtual-table support, and fighting codegen here would buy
+  /// nothing.
+  ///
+  /// `id UNINDEXED` matters: without it the sticker id is tokenised into the
+  /// searchable text, so a query like "1" would match every sticker whose id
+  /// contains a 1. The id is stored only so a hit can be mapped back to a
+  /// record.
+  Future<void> _createSearchIndex() => customStatement(
+    'CREATE VIRTUAL TABLE IF NOT EXISTS $searchTable '
+    'USING fts5(id UNINDEXED, blob);',
+  );
+
+  /// One embedding per sticker, stored as raw Float32 bytes.
+  ///
+  /// A plain table rather than a column on Stickers: the vector is derived data
+  /// like the FTS index, it is only meaningful to search, and it is absent
+  /// whenever the embedding model is unavailable — none of which belongs in the
+  /// record model that the rest of the app passes around.
+  Future<void> _createEmbeddingTable() => customStatement(
+    'CREATE TABLE IF NOT EXISTS $embeddingTable ('
+    'id TEXT NOT NULL PRIMARY KEY, vector BLOB NOT NULL);',
+  );
 }

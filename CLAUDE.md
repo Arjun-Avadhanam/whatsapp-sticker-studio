@@ -254,6 +254,71 @@ one kernel, so the device is visible in all of them.
 Verify with `flutter devices`; run device tests with
 `flutter test integration_test/<file> -d 00178358P000397`.
 
+## Search (Task 10 — keyword half done 2026-08-01; semantic half deferred)
+
+**Search is fully testable without a device** — the host SQLite that `flutter test` and CI use has
+**FTS5 compiled in** (verified 2026-08-01). No phone needed for anything in this area.
+
+**The index is maintained by `DriftLibraryStore.saveSticker`, not by callers.** Every mutating store
+method funnels through `saveSticker`, so one hook covers `updateMetadata`, `setAutoTags` and
+`incrementUsage` too, and both writes share a transaction. Chosen over the two alternatives
+deliberately:
+- *Callers call `indexSticker` themselves* — rejected: the rule gets forgotten exactly once, and the
+  symptom (a sticker the user just made is missing from search) is silent, user-facing, and looks
+  like a search bug rather than a missed write.
+- *SQL triggers* — rejected despite being the most bypass-proof: a trigger must rebuild the
+  searchable text **in SQL**, duplicating `StickerRecord.searchBlob()` in a second language where
+  the two can silently drift. `searchBlob()` stays the single definition of what is searchable.
+
+`SearchService.reindex()` still exists, but only for what the hook cannot cover: rebuilding after a
+schema migration, and repairing a drifted index.
+
+**Other details worth not re-deriving:**
+- The FTS5 table is created with raw SQL in the drift migration — drift's Dart table API has no
+  first-class virtual-table support. `schemaVersion` is now **2**; the migration is explicit and
+  additive (never `fallbackToDestructiveMigration` — a user's library is not disposable).
+- **`id UNINDEXED`** in the table definition. Without it the sticker id is tokenised into the
+  searchable text, so a query like "1" matches every sticker whose id contains a 1.
+- Ranking is `-bm25() + usageWeight * log(1 + usageCount)`. bm25 is *more negative for better
+  matches*, hence the negation. Usage is **logarithmic** so one heavily-sent sticker cannot outrank
+  genuinely better text matches and turn search into a most-used list.
+- **User input is never passed raw to `MATCH`.** FTS5's MATCH is a query language where `"`, `*`,
+  `^`, `(`, `)` are operators and AND/OR/NOT/NEAR are keywords — an apostrophe in "Arjun's face"
+  would be a syntax error, i.e. a crash on ordinary input. Each term is quoted into a literal phrase.
+
+**Semantic layer — DONE and device-verified 2026-08-01.** MediaPipe **Universal Sentence Encoder**
+(`com.google.mediapipe:tasks-text`), model bundled at
+`android/app/src/main/assets/universal_sentence_encoder.tflite`.
+
+- **5.8 MB** — measured, not guessed. (BERT embedder is 24.9 MB; USE is the affordable one.) Output
+  is **100-dimensional**, not the 512 the docs imply.
+- **Kotlin `TextEmbedderChannel`, not `tflite_flutter`.** USE needs **SentencePiece tokenisation** to
+  turn text into token ids; a raw TFLite interpreter only exposes tensors, so that tokeniser would
+  have to be reimplemented in Dart. MediaPipe does it natively from the model's own metadata.
+- **`noCompress += "tflite"`** in `build.gradle.kts` — MediaPipe memory-maps the model straight out
+  of the APK, which only works on a stored (uncompressed) entry.
+- Embeddings live in a **`sticker_embeddings` table** (schema **v3**), Float32 blobs. Owned by
+  `SearchService`, **not** the store — unlike the FTS index — because producing one needs the native
+  model, and putting that in `LibraryStore` would make the store untestable without a device.
+
+**⚠️ USE similarities are COMPRESSED — never threshold on the absolute value.** Measured on device:
+`cosine(dog, puppy) = 0.980` but `cosine(dog, car) = **0.940**`. A 0.04 margin between related and
+unrelated, so **no absolute floor separates them**: a threshold low enough to admit a true match
+admits the entire library, and semantic search silently degrades into "return everything, slightly
+reordered". This was shipped and caught only by reading the device numbers — the tests passed.
+
+**The fix: rank relatively.** Take the top-K nearest, rescale so best = 1 and worst = 0, and require
+a candidate to clear `semanticMargin` of the observed *spread*. If the spread is flat (everything
+equally unrelated, or a one-item library) return nothing rather than presenting arbitrary stickers as
+matches. Result: `"puppy"` now returns `dog=2.000` and correctly excludes `car`.
+
+**Two test smells that let the bug through — worth recognising elsewhere:**
+- Asserting `contains(expected)` on a result list is satisfied by **returning everything**. Assert
+  the distractor is **excluded** too.
+- `expect(() async => f(), returnsNormally)` passes **vacuously**: it only proves the closure did not
+  throw *synchronously*, never awaits the future, and lets the work leak past teardown. Use
+  `await expectLater(f(), completes)`.
+
 ## Sources (Task 7)
 
 **`compileSdk` is pinned to 37 in `android/app/build.gradle.kts`, not `flutter.compileSdkVersion`

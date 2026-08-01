@@ -1025,7 +1025,7 @@ class SearchHit { final StickerRecord record; final double score; }
 abstract class SearchService { Future<void> reindex(); Future<List<SearchHit>> query(String q, {int limit = 50}); }
 ```
 
-- [ ] **Step 1: Write failing tests:**
+- [x] **Step 1: Write failing tests:**
   - keyword: searching "arjun" returns the sticker whose manualName contains it;
   - ranking: with two keyword-equal matches, the one with higher `usageCount` ranks first.
 
@@ -1038,11 +1038,38 @@ test('usageCount breaks ties in ranking', () async {
 });
 ```
 
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement keyword search** via FTS5 over the blob; final score = `textMatchScore + usageWeight * log(1 + usageCount)`.
-- [ ] **Step 4: Add semantic layer (FREE):** verify/choose an on-device TFLite sentence-embedding model; embed each `searchBlob` on index and the query at search time; blend cosine similarity into the score. FTS5 remains the fallback if embeddings are unavailable. Add a semantic test ("puppy" retrieves a sticker tagged "dog").
-- [ ] **Step 5: Run → PASS.**
-- [ ] **Step 6: Commit & push** on `feat/search`.
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Implement keyword search** via FTS5 over the blob; final score = `textMatchScore + usageWeight * log(1 + usageCount)`.
+- [x] **Step 4: Add semantic layer (FREE):** verify/choose an on-device TFLite sentence-embedding model; embed each `searchBlob` on index and the query at search time; blend cosine similarity into the score. FTS5 remains the fallback if embeddings are unavailable. Add a semantic test ("puppy" retrieves a sticker tagged "dog").
+- [x] **Step 5: Run → PASS.** *(115 unit tests; analyze + format clean.)*
+- [x] **Step 6: Commit & push** on `feat/search`.
+
+  *(Actual, 2026-08-01 — **Task 10 is COMPLETE**: keyword half device-free, semantic half
+  device-verified the same day. Full detail in `CLAUDE.md`'s "Search" section.)*
+  - *Host SQLite **has FTS5**, so all of this is testable with no phone attached.*
+  - ***The index is maintained inside `DriftLibraryStore.saveSticker`***, *not by callers — every
+    mutating method funnels through it, so `updateMetadata`/`setAutoTags`/`incrementUsage` are
+    covered by one hook in one transaction. Rejected: caller-driven indexing (the rule gets
+    forgotten once and fails silently) and SQL triggers (they would duplicate `searchBlob()` in a
+    second language). `reindex()` remains, for migrations and repair only.*
+  - *Schema is now **version 2**, with an explicit additive migration; the FTS5 table is raw SQL
+    (drift has no virtual-table API) and uses **`id UNINDEXED`** so ids are not tokenised into the
+    searchable text.*
+  - *Ranking is `-bm25() + usageWeight * log(1 + usageCount)` — **logarithmic** so a heavily-used
+    sticker cannot outrank far better text matches.*
+  - ***User input is never passed raw to `MATCH`***: FTS5 is a query language, so an apostrophe in
+    "Arjun's face" would otherwise be a syntax error — a crash on ordinary input.*
+  - ***Semantic layer: MediaPipe Universal Sentence Encoder***, *5.8 MB (measured), 100-dimensional,
+    bundled as an Android asset and driven from Kotlin — **not** `tflite_flutter`, because USE needs
+    SentencePiece tokenisation that a raw TFLite interpreter cannot supply.*
+  - ***USE similarities are COMPRESSED: `cosine(dog,puppy)=0.980` but `cosine(dog,car)=0.940`.***
+    *No absolute threshold separates related from unrelated, so ranking is **relative** — top-K,
+    rescaled to best=1/worst=0, with a margin on the observed spread; a flat spread returns nothing.
+    The first implementation used an absolute floor of 0.35, shipped green, and was returning the
+    whole library on every query. Only reading the device numbers caught it.*
+  - ***Two test smells that let it through:*** *`contains(expected)` is satisfied by returning
+    everything — assert the distractor is excluded; and
+    `expect(() async => f(), returnsNormally)` passes vacuously, never awaiting the future.*
 
 ---
 

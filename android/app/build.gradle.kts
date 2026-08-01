@@ -48,3 +48,28 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Semantic search (Task 10 Step 4). MediaPipe's TextEmbedder rather than raw
+    // tflite_flutter: the Universal Sentence Encoder needs SentencePiece
+    // tokenisation to turn text into token ids, and tflite_flutter only exposes
+    // raw tensors — we would have to reimplement that tokeniser in Dart. This
+    // does it natively, and the Kotlin/MethodChannel pattern already exists here
+    // for the WebP encoder and the sticker export.
+    implementation("com.google.mediapipe:tasks-text:0.10.14")
+}
+
+// The 5.8 MB universal_sentence_encoder.tflite in src/main/assets must NOT be
+// compressed: MediaPipe memory-maps the model straight out of the APK, which
+// only works on a stored (uncompressed) entry.
+androidComponents {
+    onVariants { variant ->
+        variant.packaging.resources.excludes.add("META-INF/DEPENDENCIES")
+    }
+}
+
+android {
+    androidResources {
+        noCompress += "tflite"
+    }
+}

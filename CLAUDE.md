@@ -145,6 +145,28 @@ the 500 KB budget.
   diffs away). Add `noise=alls=90:allf=t`, and emit mp4 not gif so a 256-colour palette doesn't
   quantise the noise back into something compressible.
 
+## Exporter / ContentProvider (Task 11 — decided 2026-07-31)
+
+**Hand-roll `StickerContentProvider.kt`; do not take a Flutter sticker package.** Surveyed the two
+real candidates and both are unusable:
+- `whatsapp_stickers_exporter` — supports animated, but **last released 3 years ago** (12 likes, 61
+  downloads) and explicitly does *no* format conversion or validation.
+- `whatsapp_stickers_injector` — last release 13 months ago, 79 downloads, and **no documented
+  animated-pack support** at all.
+
+Depending on an abandoned package for a **moving** API is the wrong trade here: `avoid_cache` is
+mid-deprecation and the `image_data_version` refresh defect is open and unfixed, so we need direct
+control. We also need behaviour no package offers — our own validator as a hard pre-flight gate,
+the static→animated promotion path, and surfacing WhatsApp's `validation_error` verbatim. The Kotlin
+layer already exists (`WebpEncoderChannel.kt` from Task 5b), so a provider is incremental work, not
+new infrastructure.
+
+**Test device state (2026-07-31):** WhatsApp **`com.whatsapp` v2.26.27.85** is installed on the
+A059P. Record the version alongside any validator finding — WhatsApp's validation is closed-source
+and demonstrably varies between builds (issue #998: identical packs flipping pass/fail), so a result
+is only meaningful against a known version. A competitor app, `com.marsvard.stickermakerforwhatsapp`,
+is also installed and is useful for comparing real-world pack behaviour.
+
 ## X/Twitter extractor service (`services/extractor/`)
 
 FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only

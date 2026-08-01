@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'suites/animated_encoder_suite.dart';
+import 'suites/export_suite.dart';
 import 'suites/ffmpeg_webp_probe_suite.dart';
 import 'suites/native_webp_encoder_suite.dart';
 
@@ -27,4 +28,5 @@ void main() {
   group('ffmpeg/libwebp probe', ffmpegWebpProbeTests);
   group('static encoder (native)', nativeWebpEncoderTests);
   group('animated encoder', animatedEncoderTests);
+  group('export staging', exportTests);
 }

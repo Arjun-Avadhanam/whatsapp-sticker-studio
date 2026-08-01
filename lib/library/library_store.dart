@@ -52,8 +52,37 @@ class DriftLibraryStore implements LibraryStore {
   // ---- Stickers ----------------------------------------------------------
 
   @override
-  Future<void> saveSticker(StickerRecord r) =>
-      _db.into(_db.stickers).insertOnConflictUpdate(_toStickerRow(r));
+  Future<void> saveSticker(StickerRecord r) => _db.transaction(() async {
+    await _db.into(_db.stickers).insertOnConflictUpdate(_toStickerRow(r));
+    await _reindex(r);
+  });
+
+  /// Keeps the FTS5 search index in step with the row just written.
+  ///
+  /// Done here, inside the same transaction, rather than left to callers: a
+  /// sticker the user just made or renamed that does not turn up in search
+  /// reads as data loss, and "remember to reindex after every write" is a rule
+  /// that gets forgotten exactly once and then fails silently. Every mutating
+  /// method funnels through [saveSticker], so this one hook covers
+  /// `updateMetadata`, `setAutoTags` and `incrementUsage` as well.
+  ///
+  /// Delete-then-insert because FTS5 virtual tables have no UPSERT: without the
+  /// delete, renaming a sticker would leave it findable under its old name.
+  ///
+  /// The blob comes from [StickerRecord.searchBlob], which stays the single
+  /// definition of what is searchable. Rebuilding it in SQL — via triggers, say
+  /// — would mean maintaining that definition twice, in two languages, free to
+  /// drift apart.
+  Future<void> _reindex(StickerRecord r) async {
+    await _db.customStatement(
+      'DELETE FROM ${AppDatabase.searchTable} WHERE id = ?;',
+      [r.id],
+    );
+    await _db.customStatement(
+      'INSERT INTO ${AppDatabase.searchTable}(id, blob) VALUES (?, ?);',
+      [r.id, r.searchBlob()],
+    );
+  }
 
   @override
   Future<StickerRecord?> getSticker(String id) async {

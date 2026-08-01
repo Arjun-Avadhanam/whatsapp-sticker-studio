@@ -254,6 +254,42 @@ one kernel, so the device is visible in all of them.
 Verify with `flutter devices`; run device tests with
 `flutter test integration_test/<file> -d 00178358P000397`.
 
+## Search (Task 10 — keyword half done 2026-08-01; semantic half deferred)
+
+**Search is fully testable without a device** — the host SQLite that `flutter test` and CI use has
+**FTS5 compiled in** (verified 2026-08-01). No phone needed for anything in this area.
+
+**The index is maintained by `DriftLibraryStore.saveSticker`, not by callers.** Every mutating store
+method funnels through `saveSticker`, so one hook covers `updateMetadata`, `setAutoTags` and
+`incrementUsage` too, and both writes share a transaction. Chosen over the two alternatives
+deliberately:
+- *Callers call `indexSticker` themselves* — rejected: the rule gets forgotten exactly once, and the
+  symptom (a sticker the user just made is missing from search) is silent, user-facing, and looks
+  like a search bug rather than a missed write.
+- *SQL triggers* — rejected despite being the most bypass-proof: a trigger must rebuild the
+  searchable text **in SQL**, duplicating `StickerRecord.searchBlob()` in a second language where
+  the two can silently drift. `searchBlob()` stays the single definition of what is searchable.
+
+`SearchService.reindex()` still exists, but only for what the hook cannot cover: rebuilding after a
+schema migration, and repairing a drifted index.
+
+**Other details worth not re-deriving:**
+- The FTS5 table is created with raw SQL in the drift migration — drift's Dart table API has no
+  first-class virtual-table support. `schemaVersion` is now **2**; the migration is explicit and
+  additive (never `fallbackToDestructiveMigration` — a user's library is not disposable).
+- **`id UNINDEXED`** in the table definition. Without it the sticker id is tokenised into the
+  searchable text, so a query like "1" matches every sticker whose id contains a 1.
+- Ranking is `-bm25() + usageWeight * log(1 + usageCount)`. bm25 is *more negative for better
+  matches*, hence the negation. Usage is **logarithmic** so one heavily-sent sticker cannot outrank
+  genuinely better text matches and turn search into a most-used list.
+- **User input is never passed raw to `MATCH`.** FTS5's MATCH is a query language where `"`, `*`,
+  `^`, `(`, `)` are operators and AND/OR/NOT/NEAR are keywords — an apostrophe in "Arjun's face"
+  would be a syntax error, i.e. a crash on ordinary input. Each term is quoted into a literal phrase.
+
+**Deferred (needs a device): the semantic layer** (Task 10 Step 4) — an on-device TFLite
+sentence-embedding model blended into the score, with FTS5 as the fallback. Batch it with Task 9's
+ML Kit work. Open risk: whether a free model small enough to ship in the APK exists at all.
+
 ## Sources (Task 7)
 
 **`compileSdk` is pinned to 37 in `android/app/build.gradle.kts`, not `flutter.compileSdkVersion`

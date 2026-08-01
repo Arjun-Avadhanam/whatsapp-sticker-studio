@@ -73,6 +73,37 @@ class Packs extends Table {
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
+  /// Name of the FTS5 index backing search (Task 10).
+  static const String searchTable = 'sticker_search';
+
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+      await _createSearchIndex();
+    },
+    onUpgrade: (m, from, to) async {
+      // Explicit, additive migration — never `fallbackToDestructiveMigration`.
+      // A user's sticker library is not disposable, and the index is derived
+      // data that rebuilds from the Stickers table anyway.
+      if (from < 2) await _createSearchIndex();
+    },
+  );
+
+  /// The search index is a **virtual** FTS5 table, so it is created with raw
+  /// SQL rather than a generated drift table — drift's Dart table API has no
+  /// first-class virtual-table support, and fighting codegen here would buy
+  /// nothing.
+  ///
+  /// `id UNINDEXED` matters: without it the sticker id is tokenised into the
+  /// searchable text, so a query like "1" would match every sticker whose id
+  /// contains a 1. The id is stored only so a hit can be mapped back to a
+  /// record.
+  Future<void> _createSearchIndex() => customStatement(
+    'CREATE VIRTUAL TABLE IF NOT EXISTS $searchTable '
+    'USING fts5(id UNINDEXED, blob);',
+  );
 }

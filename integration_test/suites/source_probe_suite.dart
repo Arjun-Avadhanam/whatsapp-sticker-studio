@@ -107,6 +107,26 @@ void sourceProbeTests() {
     );
   }, timeout: longEnoughToTap);
 
+  // SKIPPED — cannot be verified from `integration_test`, and its failure is an
+  // artefact of the harness rather than of the code. Two reasons, both
+  // established on device 2026-08-01:
+  //
+  //  1. `flutter test` UNINSTALLS the app when a run ends, and Android caches
+  //     recent share targets — so an icon tapped in the share sheet can point at
+  //     a package that no longer exists, and the share silently goes nowhere.
+  //  2. A real share launches MainActivity into the SHARING app's task (observed
+  //     landing in the Gallery's task t3918), i.e. a different activity instance
+  //     and a different Flutter engine from the one running this test. The warm
+  //     getMediaStream listener here can never hear it.
+  //
+  // ALREADY PROVEN without this test: the OS resolves us as a share target
+  // (`pm query-activities -a android.intent.action.SEND -t image/jpeg` returns
+  // .MainActivity) and a real share does start our activity. Only Dart-side
+  // receipt is unverified — observable once a real UI exists, at Task 15, where
+  // the cold path should be checked too.
+  //
+  // Do NOT "fix" this by extending the timeout; the share cannot reach this
+  // process. A permanently-red test is worse than an honestly deferred one.
   testWidgets(
     'SOURCE 5 — share an image INTO the app while it is running '
     '(WARM path)',
@@ -126,21 +146,6 @@ void sourceProbeTests() {
       // extending the timeout; the share cannot reach this process.
     },
     timeout: const Timeout(Duration(minutes: 4)),
-    skip:
-        'Cannot be verified from integration_test, and the failure is an '
-        'artefact of the harness rather than of the code. Two reasons, both '
-        'established on device 2026-08-01: (1) `flutter test` UNINSTALLS the '
-        'app when a run ends, and Android caches recent share targets, so an '
-        'icon tapped in the share sheet can point at a package that no longer '
-        'exists and the share silently goes nowhere; (2) a share from another '
-        'app launches MainActivity into THAT app\'s task — observed landing in '
-        'the Gallery\'s task t3918 — i.e. a different activity instance and a '
-        'different Flutter engine from the one running this test, so the warm '
-        'getMediaStream listener here can never hear it. '
-        'WHAT IS ALREADY PROVEN without this test: the OS resolves us as a '
-        'share target (`pm query-activities -a android.intent.action.SEND '
-        '-t image/jpeg` returns .MainActivity) and a real share does start our '
-        'activity. What remains unverified is only that the Dart side receives '
-        'the media — observable once a real UI exists, in Task 15.',
+    skip: true,
   );
 }

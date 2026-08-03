@@ -34,6 +34,11 @@ abstract class LibraryStore {
   /// Replaces auto-tags and marks tagging complete.
   Future<void> setAutoTags(String id, List<String> tags);
 
+  /// Records how tagging ended. Separate from [setAutoTags], which implies
+  /// success — this is how a *failure* is recorded so the UI can offer a retry
+  /// instead of leaving the sticker stuck on "pending" forever.
+  Future<void> setTaggingStatus(String id, TaggingStatus status);
+
   Future<void> incrementUsage(String id);
 
   Future<void> savePack(PackRecord p);
@@ -129,6 +134,13 @@ class DriftLibraryStore implements LibraryStore {
     await saveSticker(
       current.copyWith(autoTags: tags, taggingStatus: TaggingStatus.done),
     );
+  }
+
+  @override
+  Future<void> setTaggingStatus(String id, TaggingStatus status) async {
+    final current = await getSticker(id);
+    if (current == null) return;
+    await saveSticker(current.copyWith(taggingStatus: status));
   }
 
   @override

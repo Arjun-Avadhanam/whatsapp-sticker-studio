@@ -58,6 +58,11 @@ dependencies:
   image_picker: ^1.2.3
   receive_sharing_intent: ^1.9.0
 
+  # Tagger (Task 9): on-device vision. FREE and offline by hard constraint —
+  # no API key, no network call, no per-use cost.
+  google_mlkit_image_labeling: ^0.15.0
+  google_mlkit_text_recognition: ^0.16.0
+
   # Animated encoding (Task 6): frame extraction + animated-WebP muxing.
   #
   # NOT `ffmpeg_kit_flutter` — that package was RETIRED 2026-01-06 and its native

@@ -6,6 +6,7 @@ import 'suites/export_suite.dart';
 import 'suites/ffmpeg_webp_probe_suite.dart';
 import 'suites/native_webp_encoder_suite.dart';
 import 'suites/semantic_suite.dart';
+import 'suites/tagger_suite.dart';
 
 /// The **single** entry point for every on-device test.
 ///
@@ -31,4 +32,5 @@ void main() {
   group('animated encoder', animatedEncoderTests);
   group('export staging', exportTests);
   group('semantic search (real model)', semanticTests);
+  group('tagger (real ML Kit)', taggerTests);
 }

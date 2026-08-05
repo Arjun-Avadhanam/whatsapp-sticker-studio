@@ -18,13 +18,27 @@ class SearchHit {
 
 /// Finds stickers by their combined auto + manual metadata.
 ///
-/// Note there is no per-sticker index method: [DriftLibraryStore] maintains the
-/// index inside `saveSticker`, so anything written to the library is searchable
-/// immediately. [reindex] exists for the cases that cannot cover — rebuilding
-/// after a schema migration, or repairing an index that has drifted.
+/// Index maintenance is split, deliberately and asymmetrically:
+/// - the **keyword** index is maintained by [DriftLibraryStore] inside
+///   `saveSticker`, so anything written to the library is instantly searchable
+///   with no caller discipline;
+/// - **embeddings** are maintained here, because producing one needs the native
+///   model and the store must stay testable without a device.
+///
+/// That split is why [embedSticker] exists at all. [reindex] covers what neither
+/// can: rebuilding after a schema migration, or repairing a drifted index.
 abstract class SearchService {
   /// Rebuilds the index from the library. Safe to call repeatedly.
   Future<void> reindex();
+
+  /// Refreshes just this sticker's **embedding**.
+  ///
+  /// Only embeddings — the FTS index is maintained by the store on every write.
+  /// This exists because embeddings cannot be: producing one needs the native
+  /// model, which the store must not depend on. Without it, a sticker tagged
+  /// after indexing is findable by keyword but invisible to semantic search
+  /// until the next full [reindex].
+  Future<void> embedSticker(StickerRecord sticker);
 
   Future<List<SearchHit>> query(String q, {int limit = 50});
 }
@@ -94,6 +108,9 @@ class FtsSearchService implements SearchService {
     // them would block every other database user for the duration.
     await _reembedAll(stickers);
   }
+
+  @override
+  Future<void> embedSticker(StickerRecord sticker) => _reembedAll([sticker]);
 
   /// Recomputes and stores the embedding for every sticker.
   ///

@@ -1000,11 +1000,29 @@ class StickerTags { final List<String> subjects; final String? emotion; final St
 abstract class TaggingService { Future<StickerTags> tag(Uint8List imageBytes); }
 ```
 
-- [ ] **Step 1: Write the contract test** against `FakeTagger` (returns fixed tags); assert `flatten()` includes subjects + textInImage; assert an orchestrator writes them via `LibraryStore.setAutoTags` and sets `taggingStatus` to `TaggingStatus.done` (and to `TaggingStatus.failed` when `tag()` throws — see spec §7).
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement `MlKitTagger`** — run on-device Image Labeling (subjects) + Text Recognition (textInImage); map to `StickerTags`. **No network, no key, free.** `suggestedName` = top label. (Optional free-tier hosted VLM adapter is a later drop-in behind `TaggingService` — not built now.)
-- [ ] **Step 4: Run contract test → PASS.** Real labeling verified on device.
-- [ ] **Step 5: Commit & push** on `feat/tagger`.
+- [x] **Step 1: Write the contract test** against `FakeTagger` (returns fixed tags); assert `flatten()` includes subjects + textInImage; assert an orchestrator writes them via `LibraryStore.setAutoTags` and sets `taggingStatus` to `TaggingStatus.done` (and to `TaggingStatus.failed` when `tag()` throws — see spec §7).
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Implement `MlKitTagger`** — run on-device Image Labeling (subjects) + Text Recognition (textInImage); map to `StickerTags`. **No network, no key, free.** `suggestedName` = top label. (Optional free-tier hosted VLM adapter is a later drop-in behind `TaggingService` — not built now.)
+- [x] **Step 4: Run contract test → PASS.** Real labeling verified on device.
+- [x] **Step 5: Commit & push** on `feat/tagger`.
+
+  *(Actual, 2026-08-04 — device-verified on A059P / Android 16. Full detail in `CLAUDE.md`'s
+  "Tagger" section.)*
+  - ***ML Kit models are BUNDLED in the APK***, *not fetched by Play Services — confirmed by
+    inspecting the built APK. **Tagging works offline from first launch**, so the `failed`/retry
+    path is for genuine errors rather than a routine cold-start gap.*
+  - ***Cost +64.8 MB on the DEBUG APK*** *(259.6 → 324.4), almost all native libs (~59 MB across
+    three ABIs) rather than models (~4 MB). A release build ships one ABI, so expect roughly a
+    third — **estimated, not measured**; confirm before quoting it.*
+  - ***Both quality risks checked and absent:*** *a flat cartoon face labelled `[Smile]` (the
+    photograph-trained labeller does handle drawn art), and OCR read `LOL` cleanly — so text
+    recognition earns its ~29 MB. **Caveat: synthetic fixtures, one label each.** The floor is
+    established; richness on a real library is still open — re-check in Task 14.*
+  - ***Confidence threshold 0.6, max 5 subjects.*** *Low-confidence guesses pollute the searchable
+    text and, since that text is embedded, drag the sticker toward unrelated meanings too.*
+  - ***Orchestrator also refreshes the embedding*** *after tagging, closing a seam from Task 10:
+    `setAutoTags` updates the FTS index for free but not the vector, so a freshly-tagged sticker was
+    keyword-findable and semantically invisible until the next reindex.*
 
 ---
 

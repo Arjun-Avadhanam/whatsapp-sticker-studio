@@ -145,6 +145,14 @@ the 500 KB budget.
   host↔device handshake then intermittently fails: the app launches, sits in the foreground doing
   nothing, and `flutter test` waits forever with no output. Diagnosed 2026-07-29 after it silently
   ate most of a session. Check with `adb forward --list`.
+- **A stalled install often resumes when you open a TRANSPORT to the device — run any
+  `adb shell` command.** Observed twice, 2026-08-04, and the contrast is what makes it more than
+  coincidence: an install sat at `Installing…` for **9.5 min with no adb contact**, then `adb devices`
+  (a **host-side query that never touches the phone** — it only reads the adb server's cached list)
+  did nothing for a further **6 min**; issuing `adb shell pm list packages` then saw tests start
+  within ~40 s. Likely an idle or half-dead transport that a new connection forces to re-establish.
+  **n=2 and the mechanism is unconfirmed**, but the remedy is free: if an install stalls, run
+  `adb shell true`. This supersedes the earlier advice to just wait — waiting cost real time.
 - **Device-test overhead is per FILE, and it dominates.** `flutter test integration_test -d <id>`
   does **not** amortize the build across files — Flutter reruns `assembleDebug` **and reinstalls the
   APK for every test file**. Measured 2026-07-29: a 13-test run took **~17 min wall-clock of which
@@ -318,6 +326,37 @@ matches. Result: `"puppy"` now returns `dog=2.000` and correctly excludes `car`.
 - `expect(() async => f(), returnsNormally)` passes **vacuously**: it only proves the closure did not
   throw *synchronously*, never awaits the future, and lets the work leak past teardown. Use
   `await expectLater(f(), completes)`.
+
+## Tagger (Task 9 — device-verified 2026-08-04)
+
+**ML Kit models are BUNDLED IN THE APK, not downloaded by Play Services.** Confirmed by inspecting
+the built APK: `assets/mlkit_label_default_model/mobile_ica_8bit_with_metadata_tflite` (3.0 MB) and
+five OCR models under `assets/mlkit-google-ocr-models/`. So **tagging works offline from first
+launch** — no network, no API key, no first-run download gap. The `failed`/retry path is therefore
+for genuine errors, not a routine cold start.
+
+**Cost: +64.8 MB on the debug APK** (259.6 → 324.4 MB), and it is overwhelmingly **native libraries,
+not models**: `libmlkitcommonpipeline.so` + `libmlkit_google_ocr_pipeline.so` are ~59 MB across three
+ABIs; the models themselves are ~4 MB. **A debug APK carries all three ABIs**, so a release build with
+per-ABI splits or an app bundle should be roughly a third of that — *estimated, not yet measured;
+confirm with a real release build before quoting a figure.*
+
+**Both quality risks were checked and did NOT materialise** (`integration_test/suites/tagger_suite.dart`):
+- *Illustrated stickers* — a flat cartoon face returned `[Smile]`. The photograph-trained labeller
+  does handle drawn art, which was the risk that would have undermined Task 14's search UI.
+- *Sticker text* — OCR read `LOL` off a white background cleanly, so text recognition earns its
+  ~29 MB half of the footprint. Do not drop it.
+
+**Evidence strength: these were SYNTHETIC fixtures, one label each.** What is established is the
+*floor* — neither illustrated art nor text comes back empty. Whether tags are rich enough to carry
+search on a real library is still open; re-check with real stickers during Task 14.
+
+**Confidence threshold is 0.6, capped at 5 subjects.** ML Kit returns a long tail of low-confidence
+guesses; those pollute the searchable text and — because that same text is embedded — drag the
+sticker toward unrelated meanings in vector space too. Fewer, better tags beat more tags.
+
+**`MlKitTagger` writes a temp file.** ML Kit's `InputImage` wants a path or platform bitmap, not raw
+bytes, so the adapter bridges it rather than widening `TaggingService` to ML Kit's shape.
 
 ## Sources (Task 7)
 

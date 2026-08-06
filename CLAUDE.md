@@ -194,8 +194,13 @@ and no better than sending pictures from the gallery.
 
 **This corrects the spec.** §3 lists pack sharing under v1 as *"nearly free; reuses the Exporter"*.
 It is neither: the Exporter cannot serve another device, and the feature is gated behind v2's import.
-**Revisit after v1** — if import lands early, pack sharing becomes cheap and could arrive before v2
-proper.
+
+**And the user need it appeared to serve is already met — by WhatsApp itself.** Once a pack is in
+your tray, sending those stickers in a chat sends *real stickers*, and the recipient handles them
+with WhatsApp's own tools. So the flow "share my stickers with a friend" works end to end today:
+**add pack → send in chat → WhatsApp does the rest.** Pack sharing is therefore not outstanding debt
+or a hole in v1 — it is a feature we do not need. Treat it as closed, not deferred, unless a concrete
+user problem shows up that this flow genuinely fails to solve.
 
 **A shared sticker arrives in WhatsApp as an ORDINARY IMAGE, not a sticker.** Device-verified
 2026-08-06. The sticker tray is reachable *only* through the `ContentProvider` + `ENABLE_STICKER_PACK`

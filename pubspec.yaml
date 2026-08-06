@@ -63,6 +63,9 @@ dependencies:
   google_mlkit_image_labeling: ^0.15.0
   google_mlkit_text_recognition: ^0.16.0
 
+  # Sharing (Task 12): the OS share sheet, for sending a single sticker.
+  share_plus: ^13.3.0
+
   # Animated encoding (Task 6): frame extraction + animated-WebP muxing.
   #
   # NOT `ffmpeg_kit_flutter` — that package was RETIRED 2026-01-06 and its native

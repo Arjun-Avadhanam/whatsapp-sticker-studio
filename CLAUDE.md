@@ -167,6 +167,37 @@ the 500 KB budget.
   diffs away). Add `noise=alls=90:allf=t`, and emit mp4 not gif so a 256-colour palette doesn't
   quantise the noise back into something compressible.
 
+## Sharing (Task 12 — decided 2026-08-06)
+
+**Single-sticker sharing ships in v1. Pack sharing does NOT — and the reason is a hard constraint,
+not a time cut.**
+
+WhatsApp identifies a pack by the pair **(ContentProvider authority, identifier)**, and that
+authority exists only on the device running our app. A friend's phone publishes no such authority, so
+their WhatsApp has nothing to load. Pack-add is inherently **local**.
+
+The constraint survives any change of transport. Files, deep link, QR — all of them still require the
+**receiving** device to construct the pack locally, and constructing a pack out of received stickers
+*is* the **import** feature, which is scoped to **v2**. So:
+
+> **Pack sharing is blocked on import (v2). It cannot be a v1 feature under any transport.**
+
+Sending the raw `.webp` files was considered and rejected: the recipient gets ordinary images they
+cannot turn back into stickers (we have no import path), so it would be pack-sharing in name only —
+and no better than sending pictures from the gallery.
+
+**This corrects the spec.** §3 lists pack sharing under v1 as *"nearly free; reuses the Exporter"*.
+It is neither: the Exporter cannot serve another device, and the feature is gated behind v2's import.
+**Revisit after v1** — if import lands early, pack sharing becomes cheap and could arrive before v2
+proper.
+
+**`usageCount` and cancelled shares.** `share_plus` reports three outcomes: `success`, `dismissed`
+and **`unavailable`** ("shown, but the platform cannot tell what the user did"). We count `success`
+and `unavailable`, never `dismissed`. The two errors are not symmetric: counting a dismissal inflates
+a signal that feeds *search ranking*, but refusing to count an undetermined outcome risks
+`usageCount` never moving at all if Android reports `unavailable` routinely — a dead signal removes
+the ranking tiebreaker entirely, which is worse than mild over-counting.
+
 ## Exporter / ContentProvider (Task 11 — decided 2026-07-31)
 
 **Hand-roll `StickerContentProvider.kt`; do not take a Flutter sticker package.** Surveyed the two

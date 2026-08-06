@@ -18,6 +18,7 @@ import 'package:whatsapp_sticker_studio/export/webp_media_probe.dart';
 import 'package:whatsapp_sticker_studio/models/pack_record.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
 
+import 'suites/sharing_probe_suite.dart';
 import 'suites/source_probe_suite.dart';
 
 /// **INTERACTIVE — requires a human to tap WhatsApp's confirmation dialog.**
@@ -237,4 +238,6 @@ void main() {
   }, timeout: longEnoughToTap);
 
   group('sources (Task 7)', sourceProbeTests);
+
+  group('sharing (Task 12)', sharingProbeTests);
 }

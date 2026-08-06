@@ -1178,13 +1178,19 @@ test('export blocks invalid pack', () async {
 ```dart
 abstract class SharingService {
   Future<void> shareSticker(StickerRecord s); // share sheet, then incrementUsage
-  Future<void> sharePack(PackRecord p);        // pack-add flow for friends
+  // NO sharePack — removed from v1 (2026-08-06). WhatsApp ties a pack to our
+  // ContentProvider's authority, which exists only on this device, so pack-add
+  // cannot cross devices. Any transport still needs the RECEIVING device to
+  // construct the pack, which is v2's import feature. See CLAUDE.md.
 }
 ```
 
 - [ ] **Step 1: Write failing test** — `shareSticker` calls the share backend with the WebP file and then calls `incrementUsage(s.id)` exactly once.
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** over `share_plus`; `sharePack` reuses the Exporter's add-to-WhatsApp flow so a friend can add the pack.
+- [x] **Step 3: Implement** over `share_plus`. *(`sharePack` was **dropped** — the premise that it
+  "reuses the Exporter's add-to-WhatsApp flow so a friend can add the pack" is false: the Exporter
+  points WhatsApp at **our** device's ContentProvider, which a friend's phone cannot read. Blocked on
+  v2's import; full reasoning in `CLAUDE.md`.)*
 - [ ] **Step 4: Run → PASS.**
 - [ ] **Step 5: Commit & push** on `feat/sharing`.
 

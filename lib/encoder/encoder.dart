@@ -5,10 +5,43 @@ import '../core/media.dart';
 /// Knobs for a single encode. [trim] is ignored by the static encoder and used
 /// by the animated one (Task 6).
 class EncodeParams {
-  const EncodeParams({this.fitMode = FitMode.pad, this.trim});
+  const EncodeParams({
+    this.fitMode = FitMode.pad,
+    this.start = Duration.zero,
+    this.trim,
+  });
 
   final FitMode fitMode;
+
+  /// Where in the clip to begin.
+  ///
+  /// Without this, trimming could only ever mean "keep the first N seconds",
+  /// which is usually the wrong moment — someone turning a 30 s video into a
+  /// reaction sticker almost never wants its opening. Ignored for stills.
+  final Duration start;
+
+  /// How much of the clip to keep from [start]. Ignored for stills.
   final Duration? trim;
+
+  EncodeParams copyWith({FitMode? fitMode, Duration? start, Duration? trim}) =>
+      EncodeParams(
+        fitMode: fitMode ?? this.fitMode,
+        start: start ?? this.start,
+        trim: trim ?? this.trim,
+      );
+
+  // Value equality so the Maker can ask "are these the params the current
+  // preview was encoded with?" — the check that stops a user saving a sticker
+  // that does not match what they were shown.
+  @override
+  bool operator ==(Object other) =>
+      other is EncodeParams &&
+      other.fitMode == fitMode &&
+      other.start == start &&
+      other.trim == trim;
+
+  @override
+  int get hashCode => Object.hash(fitMode, start, trim);
 }
 
 /// What the encoder had to do to fit the ceilings — surfaced live in the Maker

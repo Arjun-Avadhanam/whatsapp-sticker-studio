@@ -66,10 +66,19 @@ class AnimatedEncoder implements Encoder {
           ? maxSeconds
           : math.min(params.trim!.inMilliseconds / 1000, maxSeconds);
 
+      // `-ss` goes AFTER `-i`, which is the frame-accurate form: ffmpeg decodes
+      // from the beginning and starts emitting at the requested instant. The
+      // faster pre-input form seeks to the nearest keyframe and can land a few
+      // hundred milliseconds off — fine for a long video, but these clips are
+      // 1–3 s, so being off by a fraction of a second can miss the moment the
+      // user was aiming at entirely. Accuracy is worth the extra decode.
+      final startSeconds = params.start.inMilliseconds / 1000;
+      final seek = startSeconds > 0 ? '-ss $startSeconds ' : '';
+
       return await _runLadder(
         work: work,
         inputArgs: '-i ${source.path}',
-        durationArgs: '-t $seconds',
+        durationArgs: '$seek-t $seconds',
         fitMode: params.fitMode,
         what: 'this clip',
       );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/dependencies.dart';
+import 'maker_screen.dart';
 
 /// Two tabs: make a sticker, and browse what you have made.
 ///
@@ -26,10 +27,10 @@ class HomeScreen extends StatelessWidget {
             ],
           ),
         ),
-        body: const TabBarView(
+        body: TabBarView(
           children: [
-            _Placeholder(label: 'Maker', task: 'Task 13'),
-            _Placeholder(label: 'Library', task: 'Task 14'),
+            MakerScreen(dependencies: dependencies),
+            const _Placeholder(label: 'Library', task: 'Task 14'),
           ],
         ),
       ),

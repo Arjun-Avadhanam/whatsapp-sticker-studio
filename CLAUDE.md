@@ -145,14 +145,20 @@ the 500 KB budget.
   host↔device handshake then intermittently fails: the app launches, sits in the foreground doing
   nothing, and `flutter test` waits forever with no output. Diagnosed 2026-07-29 after it silently
   ate most of a session. Check with `adb forward --list`.
-- **A stalled install often resumes when you open a TRANSPORT to the device — run any
-  `adb shell` command.** Observed twice, 2026-08-04, and the contrast is what makes it more than
-  coincidence: an install sat at `Installing…` for **9.5 min with no adb contact**, then `adb devices`
-  (a **host-side query that never touches the phone** — it only reads the adb server's cached list)
-  did nothing for a further **6 min**; issuing `adb shell pm list packages` then saw tests start
-  within ~40 s. Likely an idle or half-dead transport that a new connection forces to re-establish.
-  **n=2 and the mechanism is unconfirmed**, but the remedy is free: if an install stalls, run
-  `adb shell true`. This supersedes the earlier advice to just wait — waiting cost real time.
+- **Installs stall for minutes at a time, and NOTHING reliably unsticks them except killing the run
+  and retrying.** Measured, including a failed hypothesis worth not re-testing:
+  - *2026-08-04:* an install sat 9.5 min with no adb contact; `adb devices` (a host-side query that
+    never touches the phone) did nothing for 6 more min; `adb shell pm list packages` was then
+    followed by tests starting within ~40 s. Twice. That looked like "opening a transport revives a
+    half-dead connection".
+  - *2026-08-06:* **it did not reproduce.** A stall at 586 s was poked with `adb shell true` (no
+    effect after 3.5 min) and then with `pm list packages` + `pidof` + `df` (no effect), while adb
+    itself answered instantly — 441 packages listed, `df` immediate — and the package remained
+    uninstalled.
+  - **Net: 2 correlational hits, 2 clean misses — i.e. coincidence.** With installs varying from
+    ~10 s to 15+ min, any poll during a long install is *guaranteed* to be followed eventually by a
+    start, which is what made the original observation look causal. **Do not spend time poking adb.**
+    If an install is wedged past ~10 min, kill the run and re-launch.
 - **Device-test overhead is per FILE, and it dominates.** `flutter test integration_test -d <id>`
   does **not** amortize the build across files — Flutter reruns `assembleDebug` **and reinstalls the
   APK for every test file**. Measured 2026-07-29: a 13-test run took **~17 min wall-clock of which
@@ -166,6 +172,59 @@ the 500 KB budget.
 - For a genuinely unencodable fixture, `testsrc2` alone is **not** hard enough (mostly static bars,
   diffs away). Add `noise=alls=90:allf=t`, and emit mp4 not gif so a 256-colour palette doesn't
   quantise the noise back into something compressible.
+
+## Sharing (Task 12 — decided 2026-08-06)
+
+**Single-sticker sharing ships in v1. Pack sharing does NOT — and the reason is a hard constraint,
+not a time cut.**
+
+WhatsApp identifies a pack by the pair **(ContentProvider authority, identifier)**, and that
+authority exists only on the device running our app. A friend's phone publishes no such authority, so
+their WhatsApp has nothing to load. Pack-add is inherently **local**.
+
+The constraint survives any change of transport. Files, deep link, QR — all of them still require the
+**receiving** device to construct the pack locally, and constructing a pack out of received stickers
+*is* the **import** feature, which is scoped to **v2**. So:
+
+> **Pack sharing is blocked on import (v2). It cannot be a v1 feature under any transport.**
+
+Sending the raw `.webp` files was considered and rejected: the recipient gets ordinary images they
+cannot turn back into stickers (we have no import path), so it would be pack-sharing in name only —
+and no better than sending pictures from the gallery.
+
+**This corrects the spec.** §3 lists pack sharing under v1 as *"nearly free; reuses the Exporter"*.
+It is neither: the Exporter cannot serve another device, and the feature is gated behind v2's import.
+
+**And the user need it appeared to serve is already met — by WhatsApp itself.** Once a pack is in
+your tray, sending those stickers in a chat sends *real stickers*, and the recipient handles them
+with WhatsApp's own tools. So the flow "share my stickers with a friend" works end to end today:
+**add pack → send in chat → WhatsApp does the rest.** Pack sharing is therefore not outstanding debt
+or a hole in v1 — it is a feature we do not need. Treat it as closed, not deferred, unless a concrete
+user problem shows up that this flow genuinely fails to solve.
+
+**A shared sticker arrives in WhatsApp as an ORDINARY IMAGE, not a sticker.** Device-verified
+2026-08-06. The sticker tray is reachable *only* through the `ContentProvider` + `ENABLE_STICKER_PACK`
+path (Task 11); the OS share sheet just moves a file, and WhatsApp renders that `.webp` as a photo in
+the chat.
+
+**This constrains Task 13's UI copy.** The button must not say or imply "send sticker" — call it
+*Send as image* or similar. Two ways into WhatsApp, and they are not interchangeable:
+- **Add to WhatsApp** (Exporter) → real stickers in the tray, needs a whole valid pack.
+- **Share** (share sheet) → one picture in a chat, works for a single sticker, instantly.
+
+Promising "send a sticker" here would repeat exactly the overpromise removed from pack sharing above.
+
+**`usageCount` and cancelled shares.** `share_plus` reports three outcomes: `success`, `dismissed`
+and **`unavailable`** ("shown, but the platform cannot tell what the user did"). We count `success`
+and `unavailable`, never `dismissed`. The two errors are not symmetric: counting a dismissal inflates
+a signal that feeds *search ranking*, but refusing to count an undetermined outcome risks
+`usageCount` never moving at all if a platform reports `unavailable` routinely — a dead signal
+removes the ranking tiebreaker entirely, which is worse than mild over-counting.
+
+**Device-verified 2026-08-06: Android reports precisely** — a completed share returned `success`
+(usage 1) and a dismissal returned `dismissed` (usage 0). The `unavailable` branch never fired, so it
+is defensive code for other platforms rather than load-bearing here, and there is no over-counting in
+practice.
 
 ## Exporter / ContentProvider (Task 11 — decided 2026-07-31)
 

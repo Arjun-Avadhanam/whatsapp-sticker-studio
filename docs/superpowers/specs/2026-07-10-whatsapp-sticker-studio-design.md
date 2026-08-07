@@ -43,7 +43,15 @@ These are verified facts (sources: `github.com/WhatsApp/stickers`, WhatsApp ToS,
   - Auto-tagging (free, on-device vision) of every made sticker.
   - Optional **manual metadata** (name, pack, tags, notes).
   - **Search** over combined auto + manual metadata: keyword + semantic.
-- **Pack sharing with friends** — share a whole pack via WhatsApp's own pack-add flow (nearly free; reuses the Exporter).
+- ~~**Pack sharing with friends** — share a whole pack via WhatsApp's own pack-add flow (nearly free;
+  reuses the Exporter).~~ **REMOVED from v1, 2026-08-06 — this cannot be built.** WhatsApp identifies
+  a pack by the pair (ContentProvider **authority**, identifier), and that authority exists only on
+  the device running our app; a friend's phone publishes no such authority, so their WhatsApp has
+  nothing to load. Pack-add is inherently **local**, and the Exporter cannot serve another device.
+  The constraint survives any transport (files, deep link, QR): all of them still need the
+  *receiving* device to construct the pack, which **is** the import feature — scoped to **v2**. So
+  the "nearly free" estimate was wrong in both respects. **Single-sticker sharing still ships.**
+  Revisit after v1: if import lands early, pack sharing becomes cheap and need not wait for v2.
 - `usageCount` incremented on app-mediated sends, used only to rank library/search results (no stats UI).
 
 ### v1.1 (explicitly planned, not v1)
@@ -144,7 +152,7 @@ Query over a combined text blob = `autoTags + manualName + manualTags + notes`. 
 - **Add to WhatsApp:** implements `StickerContentProvider` (metadata + asset URIs, `com.whatsapp.sticker.READ`) and fires `ENABLE_STICKER_PACK` with `sticker_pack_id`, `sticker_pack_authority`, `sticker_pack_name`.
 - **Pre-export validation:** reuse WhatsApp's `StickerPackValidator` logic to check *every* ceiling **before** launching WhatsApp; surface exactly what's non-compliant. Never hand WhatsApp a pack it will reject.
 - **Single-sticker share:** share-sheet the WebP to WhatsApp (or anywhere).
-- **Pack sharing with friends:** share the pack via WhatsApp's pack-add flow.
+- ~~**Pack sharing with friends:** share the pack via WhatsApp's pack-add flow.~~ **Removed from v1 — see the note in §3; blocked on v2's import.**
 - Increments `usageCount` on every app-mediated send/export.
 
 ---

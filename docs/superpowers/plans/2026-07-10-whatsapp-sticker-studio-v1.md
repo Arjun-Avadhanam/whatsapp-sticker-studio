@@ -1178,15 +1178,33 @@ test('export blocks invalid pack', () async {
 ```dart
 abstract class SharingService {
   Future<void> shareSticker(StickerRecord s); // share sheet, then incrementUsage
-  Future<void> sharePack(PackRecord p);        // pack-add flow for friends
+  // NO sharePack — removed from v1 (2026-08-06). WhatsApp ties a pack to our
+  // ContentProvider's authority, which exists only on this device, so pack-add
+  // cannot cross devices. Any transport still needs the RECEIVING device to
+  // construct the pack, which is v2's import feature. See CLAUDE.md.
 }
 ```
 
-- [ ] **Step 1: Write failing test** — `shareSticker` calls the share backend with the WebP file and then calls `incrementUsage(s.id)` exactly once.
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** over `share_plus`; `sharePack` reuses the Exporter's add-to-WhatsApp flow so a friend can add the pack.
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit & push** on `feat/sharing`.
+- [x] **Step 1: Write failing test** — `shareSticker` calls the share backend with the WebP file and then calls `incrementUsage(s.id)` exactly once.
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Implement** over `share_plus`. *(`sharePack` was **dropped** — the premise that it
+  "reuses the Exporter's add-to-WhatsApp flow so a friend can add the pack" is false: the Exporter
+  points WhatsApp at **our** device's ContentProvider, which a friend's phone cannot read. Blocked on
+  v2's import; full reasoning in `CLAUDE.md`.)*
+- [x] **Step 4: Run → PASS.**
+- [x] **Step 5: Commit & push** on `feat/sharing`.
+
+  *(Actual, 2026-08-06 — device-verified on A059P / Android 16. Detail in `CLAUDE.md`'s "Sharing"
+  section.)*
+  - ***A shared sticker arrives in WhatsApp as an ORDINARY IMAGE, not a sticker.*** *The tray is
+    reachable only via the ContentProvider + intent path; the share sheet just moves a file.
+    **Task 13's button must not imply "send sticker"** — the two routes into WhatsApp are not
+    interchangeable, and promising otherwise would repeat the overpromise just removed from pack
+    sharing.*
+  - ***Android reports share outcomes precisely***: a completed share returned `success` (usage 1),
+    a dismissal returned `dismissed` (usage 0). The `unavailable` branch never fired, so counting it
+    as a send is defensive rather than load-bearing, and there is no over-counting in practice.*
+  - ***`sharePack` dropped*** *— see the note on the interface above.*
 
 ---
 

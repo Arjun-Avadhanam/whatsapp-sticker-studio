@@ -7,6 +7,7 @@ import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
 import 'package:whatsapp_sticker_studio/sources/source.dart';
+import 'package:whatsapp_sticker_studio/tagger/tagging_service.dart';
 import 'package:whatsapp_sticker_studio/ui/maker_controller.dart';
 import 'package:whatsapp_sticker_studio/ui/maker_screen.dart';
 
@@ -85,8 +86,9 @@ void main() {
     required Source source,
     Encoder? stills,
     Encoder? motion,
+    TaggingService? tagger,
   }) async {
-    deps = await testDependencies();
+    deps = await testDependencies(tagger: tagger);
     addTearDown(deps.dispose);
 
     final controller = MakerController(
@@ -107,6 +109,16 @@ void main() {
       ),
     );
     return controller;
+  }
+
+  /// Scrolls the Maker's ListView to the bottom.
+  ///
+  /// The list is lazy, so the status card below the Save button is not built at
+  /// all until it comes near the viewport — a `findsNothing` there would be the
+  /// list, not the widget.
+  Future<void> scrollToBottom(WidgetTester tester) async {
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pump();
   }
 
   testWidgets('starts empty and prompts for media', (tester) async {
@@ -268,5 +280,69 @@ void main() {
     expect(stored.single.taggingStatus, isNot(TaggingStatus.failed));
 
     await controller.pendingTagging; // settle before the db closes
+  });
+
+  testWidgets('the saved sticker shows its tags once they land', (
+    tester,
+  ) async {
+    final controller = await pump(tester, source: FakeSource(image()));
+
+    await tester.tap(find.text('Gallery'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save sticker'));
+      // tap() dispatches the gesture but does not await the async handler
+      // behind it, so save() has not started writing yet — pendingTagging is
+      // still null the instant the tap returns. Give it a turn on the real
+      // event loop before asking for the future it creates.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await controller.pendingTagging;
+    });
+    await tester.pump();
+    await scrollToBottom(tester);
+
+    expect(find.byKey(const Key('tagging-status')), findsOneWidget);
+    expect(find.byKey(const Key('tagging-tags')), findsOneWidget);
+    expect(find.text('dog'), findsOneWidget);
+  });
+
+  testWidgets('a tagging failure offers a retry, never looks like loss', (
+    tester,
+  ) async {
+    final controller = await pump(
+      tester,
+      source: FakeSource(image()),
+      tagger: FlakyTagger(), // fails once, then succeeds
+    );
+
+    await tester.tap(find.text('Gallery'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save sticker'));
+      // tap() dispatches the gesture but does not await the async handler
+      // behind it, so save() has not started writing yet — pendingTagging is
+      // still null the instant the tap returns. Give it a turn on the real
+      // event loop before asking for the future it creates.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await controller.pendingTagging;
+    });
+    await tester.pump();
+    await scrollToBottom(tester);
+
+    // The sticker is safe and the copy has to say so — a bare "failed" reads as
+    // "your sticker is gone".
+    expect(find.byKey(const Key('tagging-failed')), findsOneWidget);
+    expect(find.text('Sticker saved'), findsOneWidget);
+    expect((await deps.store.allStickers()), hasLength(1));
+
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Retry'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await controller.pendingTagging;
+    });
+    await tester.pump();
+
+    expect(find.byKey(const Key('tagging-failed')), findsNothing);
+    expect(find.text('dog'), findsOneWidget);
   });
 }

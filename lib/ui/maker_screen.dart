@@ -5,6 +5,7 @@ import '../core/media.dart';
 import '../core/whatsapp_spec.dart';
 import '../sources/camera_source.dart';
 import '../sources/gallery_source.dart';
+import '../models/sticker_record.dart';
 import '../sources/source.dart';
 import 'maker_controller.dart';
 
@@ -99,6 +100,10 @@ class _MakerScreenState extends State<MakerScreen> {
               icon: const Icon(Icons.save_alt),
               label: const Text('Save sticker'),
             ),
+          ],
+          if (_controller.lastSaved != null) ...[
+            const SizedBox(height: 16),
+            _TaggingStatusCard(controller: _controller),
           ],
         ],
       ),
@@ -298,6 +303,98 @@ class _StaleNotice extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// What happened to the sticker that was just saved.
+///
+/// Deliberately framed around the *sticker*, not the tagger: the sticker is
+/// already in the library and already findable by whatever the user named it,
+/// so a tagging failure is a missing convenience, never a lost sticker. The
+/// copy has to say that, or a red "failed" reads as "your sticker is gone".
+class _TaggingStatusCard extends StatelessWidget {
+  const _TaggingStatusCard({required this.controller});
+  final MakerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final saved = controller.lastSaved!;
+    final scheme = Theme.of(context).colorScheme;
+    final detail = switch (saved.taggingStatus) {
+      // Pending is driven by the record, not by taggingInProgress: the status
+      // survives a rebuild, and both mean the same thing here.
+      TaggingStatus.pending => const Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text('Finding tags…', key: Key('tagging-pending')),
+        ],
+      ),
+      TaggingStatus.done => _Tags(saved.autoTags),
+      TaggingStatus.failed => Row(
+        children: [
+          const Expanded(
+            child: Text(
+              // Names the consequence, and the workaround, instead of just
+              // announcing an error.
+              'Could not tag it automatically — you can still find it by name.',
+              key: Key('tagging-failed'),
+            ),
+          ),
+          TextButton(
+            onPressed: controller.taggingInProgress
+                ? null
+                : controller.retryTagging,
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    };
+
+    return Card(
+      key: const Key('tagging-status'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.check_circle, size: 18, color: scheme.primary),
+                const SizedBox(width: 8),
+                const Expanded(child: Text('Sticker saved')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            detail,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Tags extends StatelessWidget {
+  const _Tags(this.tags);
+  final List<String> tags;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tags.isEmpty) {
+      // Tagging succeeded but recognised nothing — a real outcome for abstract
+      // art, and not a failure, so it must not offer a retry that would return
+      // the same empty answer.
+      return const Text('No tags found', key: Key('tagging-empty'));
+    }
+    return Wrap(
+      key: const Key('tagging-tags'),
+      spacing: 6,
+      children: [for (final tag in tags) Chip(label: Text(tag))],
     );
   }
 }

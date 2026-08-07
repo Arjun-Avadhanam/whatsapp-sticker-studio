@@ -252,6 +252,91 @@ void main() {
     });
   });
 
+  group('tagging state', () {
+    test('lastSaved carries the tags once they land', () async {
+      final deps = await testDependencies();
+      addTearDown(deps.dispose);
+      final c = MakerController(deps: deps, staticEncoder: stills);
+
+      await c.pickFrom(FakeSource(fakeImage()));
+      await c.save();
+      expect(c.taggingInProgress, isTrue);
+
+      await c.pendingTagging;
+
+      expect(c.taggingInProgress, isFalse);
+      expect(c.lastSaved!.taggingStatus, TaggingStatus.done);
+      expect(c.lastSaved!.autoTags, contains('dog'));
+    });
+
+    test('a tagging failure keeps the sticker and records failed', () async {
+      // The sticker is already written and already findable by whatever the
+      // user named it. A tagger failure must cost the tags, nothing else.
+      final deps = await testDependencies(
+        tagger: FlakyTagger(failures: 99), // never recovers
+      );
+      addTearDown(deps.dispose);
+      final c = MakerController(deps: deps, staticEncoder: stills);
+
+      await c.pickFrom(FakeSource(fakeImage()));
+      final saved = await c.save();
+      await c.pendingTagging;
+
+      expect(saved, isNotNull);
+      expect(await deps.store.getSticker(saved!.id), isNotNull);
+      expect(c.lastSaved!.taggingStatus, TaggingStatus.failed);
+    });
+
+    test('retrying after a failure recovers the tags', () async {
+      final tagger = FlakyTagger(); // fails once, then succeeds
+      final deps = await testDependencies(tagger: tagger);
+      addTearDown(deps.dispose);
+      final c = MakerController(deps: deps, staticEncoder: stills);
+
+      await c.pickFrom(FakeSource(fakeImage()));
+      await c.save();
+      await c.pendingTagging;
+      expect(c.lastSaved!.taggingStatus, TaggingStatus.failed);
+
+      await c.retryTagging();
+
+      expect(tagger.calls, 2);
+      expect(c.lastSaved!.taggingStatus, TaggingStatus.done);
+      expect(c.lastSaved!.autoTags, contains('dog'));
+    });
+
+    test('a retry re-reads the bytes from disk, not the preview', () async {
+      // The preview moves on as soon as the user picks something else, so a
+      // retry that reused it would tag the WRONG image.
+      final tagger = FlakyTagger();
+      final deps = await testDependencies(tagger: tagger);
+      addTearDown(deps.dispose);
+      final c = MakerController(
+        deps: deps,
+        staticEncoder: stills,
+        animatedEncoder: motion,
+      );
+
+      await c.pickFrom(FakeSource(fakeImage()));
+      final saved = await c.save();
+      await c.pendingTagging;
+
+      // The user carries on: a new pick replaces the preview entirely.
+      await c.pickFrom(FakeSource(video()));
+
+      await c.retryTagging();
+
+      expect(c.lastSaved!.id, saved!.id, reason: 'still the saved sticker');
+      expect(c.lastSaved!.taggingStatus, TaggingStatus.done);
+    });
+
+    test('retrying before anything is saved does nothing', () async {
+      final c = await controller();
+      await c.retryTagging();
+      expect(c.lastSaved, isNull);
+    });
+  });
+
   group('encoder failures', () {
     test('undecodable input surfaces a message rather than crashing', () async {
       stills = CountingEncoder(

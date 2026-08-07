@@ -41,6 +41,28 @@ class FakeTagger implements TaggingService {
   Future<StickerTags> tag(Uint8List imageBytes) async => tags;
 }
 
+/// Fails the first [failures] attempts, then succeeds.
+///
+/// A tagger that always fails only proves the failure is *shown*; this proves a
+/// retry genuinely recovers, which is the whole point of offering one.
+class FlakyTagger implements TaggingService {
+  FlakyTagger({
+    this.failures = 1,
+    this.tags = const StickerTags(subjects: ['dog']),
+  });
+
+  final int failures;
+  final StickerTags tags;
+  int calls = 0;
+
+  @override
+  Future<StickerTags> tag(Uint8List imageBytes) async {
+    calls++;
+    if (calls <= failures) throw StateError('tagger unavailable');
+    return tags;
+  }
+}
+
 class FakeExporter implements Exporter {
   final List<PackRecord> exported = [];
 
@@ -67,11 +89,14 @@ class FakeShareBackend implements ShareBackend {
 /// platform-touching collaborator sits behind an interface, so the whole app
 /// can be assembled and driven in a widget test. If this helper ever becomes
 /// hard to write, something has started constructing its own dependencies.
-Future<AppDependencies> testDependencies({Directory? stickerDir}) async {
+Future<AppDependencies> testDependencies({
+  Directory? stickerDir,
+  TaggingService? tagger,
+}) async {
   final db = AppDatabase(NativeDatabase.memory());
   final store = DriftLibraryStore(db);
   final search = FtsSearchService(db, store); // no embedder: keyword-only
-  final tagger = FakeTagger();
+  final taggingService = tagger ?? FakeTagger();
   final dir =
       stickerDir ?? Directory.systemTemp.createTempSync('test_stickers');
 
@@ -82,8 +107,8 @@ Future<AppDependencies> testDependencies({Directory? stickerDir}) async {
     staticEncoder: StaticEncoder(FakeWebpEncoder()),
     animatedEncoder: const AnimatedEncoder(),
     trayIconEncoder: TrayIconEncoder(FakeWebpEncoder()),
-    tagger: tagger,
-    tagging: TaggingOrchestrator(tagger, store, search: search),
+    tagger: taggingService,
+    tagging: TaggingOrchestrator(taggingService, store, search: search),
     exporter: FakeExporter(),
     packStager: PackStager(baseDir: dir),
     sharing: SharingService(FakeShareBackend(), store),

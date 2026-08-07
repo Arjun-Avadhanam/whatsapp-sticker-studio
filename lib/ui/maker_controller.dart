@@ -10,6 +10,7 @@ import '../core/whatsapp_spec.dart';
 import '../encoder/encoder.dart';
 import '../models/sticker_record.dart';
 import '../sources/source.dart';
+import '../tagger/tagging_orchestrator.dart';
 
 /// State and behaviour behind the Maker screen.
 ///
@@ -177,27 +178,75 @@ class MakerController extends ChangeNotifier {
     // index inside saveSticker.
     await _deps.store.saveSticker(record);
 
-    // Deliberately NOT awaited here: tagging must never delay the save, and a
-    // failure inside it must not cost the user their sticker. But the future is
-    // *kept* rather than discarded — a caller that wants to know when tags have
-    // landed (the UI, refreshing a status badge; a test, before it tears down
-    // the database) can await [pendingTagging]. Dropping it entirely would let
-    // the work run on past everything that could observe or clean up after it.
-    _pendingTagging = _deps.tagging.tag(record, encoded.webpBytes).whenComplete(
-      () {
-        _pendingTagging = null;
-        notifyListeners();
-      },
-    );
-
+    _lastSaved = record;
+    _startTagging(record, encoded.webpBytes);
     return record;
   }
+
+  StickerRecord? _lastSaved;
+
+  /// The most recently saved sticker, refreshed as tagging resolves.
+  ///
+  /// The UI reads this to show tags once they land, or a retry when they do not.
+  StickerRecord? get lastSaved => _lastSaved;
 
   Future<void>? _pendingTagging;
 
   /// Completes when the in-flight tagging finishes, or `null` if none is
   /// running. Tagging is asynchronous by design; this is how to observe it.
   Future<void>? get pendingTagging => _pendingTagging;
+
+  /// True while tags are still being worked out for [lastSaved].
+  bool get taggingInProgress => _pendingTagging != null;
+
+  /// Runs tagging again for the sticker that was just saved.
+  ///
+  /// Reads the bytes back from disk rather than reusing the preview, so a retry
+  /// still works after the user has moved on and re-encoded something else.
+  ///
+  /// Goes through the orchestrator's [TaggingOrchestrator.retry], which resets
+  /// the record to pending first — so the badge shows work in progress instead
+  /// of sitting on "failed" until the second attempt resolves.
+  Future<void> retryTagging() async {
+    final record = _lastSaved;
+    if (record == null || _pendingTagging != null) return;
+
+    final file = File(record.filePath);
+    if (!file.existsSync()) return;
+    final bytes = await file.readAsBytes();
+
+    _track(_deps.tagging.retry(record, bytes));
+    await _pendingTagging;
+  }
+
+  /// Kicks off tagging and keeps the handle.
+  ///
+  /// Deliberately NOT awaited by [save]: tagging must never delay the save, and
+  /// a failure inside it must not cost the user their sticker. But the future is
+  /// *kept* rather than discarded — the UI awaits it to refresh a status badge,
+  /// and tests await it before tearing down the database. Dropping it entirely
+  /// would let the work run on past anything that could observe or clean up
+  /// after it.
+  void _startTagging(StickerRecord record, Uint8List bytes) =>
+      _track(_deps.tagging.tag(record, bytes));
+
+  void _track(Future<void> work) {
+    _pendingTagging = work.whenComplete(() async {
+      _pendingTagging = null;
+      // Re-read so the UI shows the tags that landed, or the failed state that
+      // earns a retry button.
+      await _refreshLastSaved();
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  Future<void> _refreshLastSaved() async {
+    final id = _lastSaved?.id;
+    if (id == null) return;
+    _lastSaved = await _deps.store.getSticker(id) ?? _lastSaved;
+    notifyListeners();
+  }
 
   Future<void> _encode() async {
     final media = _media;

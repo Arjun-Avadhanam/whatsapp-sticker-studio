@@ -173,6 +173,34 @@ the 500 KB budget.
   diffs away). Add `noise=alls=90:allf=t`, and emit mp4 not gif so a 256-colour palette doesn't
   quantise the noise back into something compressible.
 
+## Maker UI (Task 13 — decided 2026-08-07)
+
+**"Live QualityReport" works for stills and NOT for animation — the two paths need different
+interaction models.** The plan's Step 3 assumed one live readout for both. Measured on device: a
+static encode is an in-memory quality ladder returning in well under a second, but a real 1.5 MB
+gallery video took **~24 seconds**, because the degradation ladder can run up to seven ffmpeg passes
+over the whole clip. Re-encoding on every fit-mode toggle would make the screen unusable.
+
+- **Static:** re-encode on change. The readout is genuinely live.
+- **Animated:** encode **once** when the media loads (defaults: `pad`, no trim), then treat parameter
+  changes as making the preview **stale** — show the previous result plus an explicit *Update
+  preview* action. Progress is indeterminate (our ffmpeg wrapper exposes no callback), so show a
+  spinner and say the wait is expected for video rather than looking hung.
+
+**Save must never persist a sticker that does not match what was previewed.** Track the params used
+for the last successful encode; if the current params differ, Save encodes first and then saves.
+Otherwise a user who changes fit mode and immediately taps Save gets a sticker that looks nothing
+like the preview — silently.
+
+**Trim is the lever to promote, not quality.** Cost is near-linear in frame count here, so shortening
+a clip is by far the strongest way to fit the 500 KB ceiling, and good animated stickers are 1.5–3 s
+loops rather than the full 10 s. When `EncoderBudgetException` fires, its message already says
+"try trimming it shorter" — surface that, do not replace it with a generic failure.
+
+**Tray icons are generated, not asked for.** Every pack needs a 96×96 ≤50 KB icon and `PackRecord`
+requires the path; the plan never says where it comes from. Use `TrayIconEncoder` on the pack's first
+sticker automatically — one less decision to put in front of the user.
+
 ## Sharing (Task 12 — decided 2026-08-06)
 
 **Single-sticker sharing ships in v1. Pack sharing does NOT — and the reason is a hard constraint,

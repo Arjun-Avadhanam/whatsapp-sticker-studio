@@ -1224,6 +1224,19 @@ abstract class SharingService {
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement** the flow: source picker (gallery / camera / Giphy / **paste X-Twitter link**) → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share". The X-link entry shows a paste field, constructs an `XLinkSource(url)`, and surfaces a friendly error if extraction returns `null`.
 
+  > **⚠️ CORRECTED 2026-08-07 — "live `QualityReport`" holds for stills only.** Measured on device: a
+  > static encode returns in well under a second, but a real 1.5 MB gallery video took **~24 s**
+  > (the ladder runs up to seven ffmpeg passes over the whole clip). Re-encoding on every toggle
+  > would make the screen unusable, so:
+  > - **Static** — re-encode on change; the readout really is live.
+  > - **Animated** — encode once on load, then mark the preview **stale** on parameter changes and
+  >   offer an explicit *Update preview*. Progress is indeterminate (no ffmpeg callback in our
+  >   wrapper), so say the wait is expected rather than looking hung.
+  > - **Save must not persist something the user never previewed**: track the params of the last
+  >   successful encode and re-encode before saving if they have since changed.
+  > - When it will not fit, push **trimming** over quality — cost is near-linear in frame count, and
+  >   `EncoderBudgetException` already carries that guidance. See `CLAUDE.md`.
+
 - [ ] **Step 3b: Add-to-pack silently promotes statics** *(added 2026-07-18 — see `CLAUDE.md`)*
 
   When the user adds a **static** sticker to an **animated** pack, call

@@ -1,30 +1,34 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:whatsapp_sticker_studio/main.dart';
 
+import 'app/test_dependencies.dart';
+
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('the app shell builds and shows both tabs', (tester) async {
+    // Building the WHOLE app in a plain widget test is the point of the
+    // composition root: every platform-touching collaborator sits behind an
+    // interface, so nothing here reaches for Kotlin, ML Kit or ffmpeg.
+    final deps = await testDependencies();
+    addTearDown(deps.dispose);
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(StickerStudioApp(dependencies: deps));
+    await tester.pumpAndSettle();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    expect(find.text('Sticker Studio'), findsOneWidget);
+    expect(find.text('Make'), findsOneWidget);
+    expect(find.text('Library'), findsOneWidget);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('switching tabs shows the other section', (tester) async {
+    final deps = await testDependencies();
+    addTearDown(deps.dispose);
+
+    await tester.pumpWidget(StickerStudioApp(dependencies: deps));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Library'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Library'), findsWidgets);
   });
 }

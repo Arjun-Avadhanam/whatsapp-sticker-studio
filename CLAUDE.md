@@ -251,6 +251,43 @@ the words "animat", "convert", "static" and "frame" appear nowhere in the sheet.
 3-sticker floor *do* say how many more they need — that is honest and actionable, and unrelated to
 promotion.
 
+## Export UI (Task 13 · #43 — decided 2026-08-08)
+
+**Our confirmation dialog is mandatory, because WhatsApp's may not exist.** The spec assumed a pack
+cannot be added silently. On device (`com.whatsapp` v2.26.27.85, 2026-08-01) four packs were added in
+~11 s with **no per-pack dialog observed**, so ours may be the only thing between a tap and a pack
+appearing in someone's WhatsApp. `confirmAndExportPack` gates everything behind it and exports
+nothing until it is answered.
+
+**The three export failures stay distinct all the way to the UI.** `PackExportService` deliberately
+does not flatten them:
+- `PackNotValidException` → our validator, listing **every** problem at once (it never
+  short-circuits, so the user fixes everything in one pass).
+- `WhatsAppRejectedException` → shown **verbatim**. Their validation is closed-source and stricter
+  than the sample (issue #606), so that string is the only diagnostic that exists; paraphrasing
+  destroys the sole clue.
+- `ExportCancelledException` → **silent**. Backing out is an ordinary choice, not a failure — no
+  dialog, no snackbar.
+
+**Staging must precede the intent, and `PackExportService` owns that order.** WhatsApp reads through
+the ContentProvider the moment it receives the intent, so firing first races an unwritten directory.
+Screens use `deps.packExport`, never `deps.exporter` directly.
+
+**A re-add says the refresh may not happen.** `hasBeenStaged` detects it, and the success message
+tells the user to open WhatsApp's sticker manager — because bumping `image_data_version` demonstrably
+does not always refresh the tray (issue #612, acknowledged, closed unfixed).
+
+**Packs below the 3-sticker floor show a disabled button plus the shortfall**, rather than an enabled
+one that earns a rejection.
+
+**Sharing is NOT in the Maker.** Considered and cut 2026-08-08: the sticker file is built for the
+tray, and as a chat photo it is a *worse* image than the source the user already has in their
+gallery. WhatsApp itself covers the real need once a pack is installed (send sticker in chat →
+recipient gets a real sticker). `SharingService` is kept — it is written, tested and device-verified
+— and its honest home is the **Library (Task 14)** as *Export file*, where "get this file out of the
+app" is the obvious reading and WhatsApp is not the implied destination. **Untested:** what WhatsApp
+does with our alpha channel when it renders the WebP as a photo.
+
 ## Sharing (Task 12 — decided 2026-08-06)
 
 **Single-sticker sharing ships in v1. Pack sharing does NOT — and the reason is a hard constraint,

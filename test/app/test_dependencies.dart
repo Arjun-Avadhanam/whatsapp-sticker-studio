@@ -10,6 +10,7 @@ import 'package:whatsapp_sticker_studio/encoder/static_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/tray_icon_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/webp_encoder.dart';
 import 'package:whatsapp_sticker_studio/export/exporter.dart';
+import 'package:whatsapp_sticker_studio/export/pack_export_service.dart';
 import 'package:whatsapp_sticker_studio/export/pack_stager.dart';
 import 'package:whatsapp_sticker_studio/library/database.dart';
 import 'package:whatsapp_sticker_studio/library/library_store.dart';
@@ -94,11 +95,39 @@ class FakePromoter implements StaticPromoter {
 class FakeExporter implements Exporter {
   final List<PackRecord> exported = [];
 
+  /// Set to make the export fail the way a real one can.
+  Object? throws;
+
   @override
   Future<void> addPackToWhatsApp(
     PackRecord pack,
     List<StickerRecord> stickers,
-  ) async => exported.add(pack);
+  ) async {
+    exported.add(pack);
+    if (throws != null) throw throws!;
+  }
+}
+
+/// A [PackStager] that copies nothing.
+///
+/// Real staging writes a manifest and copies every sticker — genuine `dart:io`
+/// async, which never completes inside `testWidgets`' fake-time zone and so
+/// hangs the test silently. Staging has its own tests; widget tests only care
+/// that export was *attempted*.
+class StubPackStager extends PackStager {
+  StubPackStager({super.baseDir});
+
+  bool staged = false;
+
+  @override
+  Future<Directory> stage(
+    PackRecord pack,
+    List<StickerRecord> stickers, {
+    String publisher = 'WhatsApp Sticker Studio',
+  }) async {
+    staged = true;
+    return packDir(pack.id);
+  }
 }
 
 class FakeShareBackend implements ShareBackend {
@@ -120,6 +149,7 @@ class FakeShareBackend implements ShareBackend {
 Future<AppDependencies> testDependencies({
   Directory? stickerDir,
   TaggingService? tagger,
+  FakeExporter? exporter,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   final store = DriftLibraryStore(db);
@@ -127,6 +157,8 @@ Future<AppDependencies> testDependencies({
   final taggingService = tagger ?? FakeTagger();
   final dir =
       stickerDir ?? Directory.systemTemp.createTempSync('test_stickers');
+  final fakeExporter = exporter ?? FakeExporter();
+  final stubStager = StubPackStager(baseDir: dir);
 
   return AppDependencies(
     database: db,
@@ -137,8 +169,13 @@ Future<AppDependencies> testDependencies({
     trayIconEncoder: TrayIconEncoder(FakeWebpEncoder()),
     tagger: taggingService,
     tagging: TaggingOrchestrator(taggingService, store, search: search),
-    exporter: FakeExporter(),
-    packStager: PackStager(baseDir: dir),
+    exporter: fakeExporter,
+    packStager: stubStager,
+    packExport: PackExportService(
+      store: store,
+      stager: stubStager,
+      exporter: fakeExporter,
+    ),
     packs: PackService(
       store: store,
       trayIcons: TrayIconEncoder(FakeWebpEncoder()),

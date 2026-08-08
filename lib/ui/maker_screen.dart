@@ -6,8 +6,10 @@ import '../core/whatsapp_spec.dart';
 import '../sources/camera_source.dart';
 import '../sources/gallery_source.dart';
 import '../models/sticker_record.dart';
+import '../models/pack_record.dart';
 import '../sources/source.dart';
 import 'add_to_pack_sheet.dart';
+import 'export_pack_action.dart';
 import 'maker_controller.dart';
 
 /// Turn a picked image or clip into a compliant sticker.
@@ -69,6 +71,24 @@ class _MakerScreenState extends State<MakerScreen> {
     );
   }
 
+  /// The pack the last-saved sticker went into, if any.
+  ///
+  /// Held here rather than on the controller: it is a fact about this screen's
+  /// current flow, not about making a sticker, and the Library (Task 14) will
+  /// reach packs its own way.
+  PackRecord? _pack;
+
+  Future<void> _export() async {
+    final pack = _pack;
+    if (pack == null) return;
+
+    await confirmAndExportPack(
+      context: context,
+      dependencies: widget.dependencies,
+      pack: pack,
+    );
+  }
+
   /// Offers to file the sticker that was just saved into a pack.
   ///
   /// Only a pack can be added to WhatsApp — a loose sticker cannot — so this is
@@ -84,7 +104,7 @@ class _MakerScreenState extends State<MakerScreen> {
     );
     if (pack == null || !mounted) return; // backed out
 
-    setState(() {}); // the sticker's pack changed
+    setState(() => _pack = pack);
 
     final short = WhatsAppSpec.minStickersPerPack - pack.stickerIds.length;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -139,6 +159,10 @@ class _MakerScreenState extends State<MakerScreen> {
               controller: _controller,
               onAddToPack: _addToPack,
             ),
+          ],
+          if (_pack != null) ...[
+            const SizedBox(height: 8),
+            _ExportCard(pack: _pack!, onExport: _export),
           ],
         ],
       ),
@@ -425,6 +449,57 @@ class _TaggingStatusCard extends StatelessWidget {
                 label: Text(
                   saved.packId == null ? 'Add to pack' : 'Move to another pack',
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The pack the sticker just joined, and the way into WhatsApp.
+///
+/// This is the only route to the sticker tray — the OS share sheet moves a file
+/// and WhatsApp renders it as an ordinary photo (device-verified 2026-08-06).
+/// So the wording here says *pack*, and never implies a sticker can be sent
+/// straight to someone.
+class _ExportCard extends StatelessWidget {
+  const _ExportCard({required this.pack, required this.onExport});
+
+  final PackRecord pack;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = canExport(pack);
+
+    return Card(
+      key: const Key('export-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(pack.name, style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              // Disabled-with-a-reason rather than offered-then-refused: the
+              // 3-sticker floor is WhatsApp's and it will reject the pack.
+              ready
+                  ? '${pack.stickerIds.length} stickers · ready'
+                  : shortfallLabel(pack),
+              key: const Key('export-readiness'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                key: const Key('export-button'),
+                onPressed: ready ? onExport : null,
+                icon: const Icon(Icons.add_to_home_screen),
+                label: const Text('Add pack to WhatsApp'),
               ),
             ),
           ],

@@ -313,6 +313,28 @@ void main() {
 
     expect(find.text('Add to pack'), findsWidgets);
     expect(find.text('New pack'), findsOneWidget);
+
+    // Naming it creates the pack and the export card appears — but disabled,
+    // because one sticker is below WhatsApp's 3-sticker floor. Offering an
+    // enabled button here would only earn a rejection.
+    await tester.tap(find.text('New pack'));
+    await tester.pump();
+    await tester.enterText(find.byKey(const Key('pack-name')), 'Road trip');
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Create'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await scrollToBottom(tester);
+
+    expect(find.byKey(const Key('export-card')), findsOneWidget);
+    expect(find.textContaining('2 more stickers'), findsOneWidget);
+
+    final button = tester.widget<FilledButton>(
+      find.byKey(const Key('export-button')),
+    );
+    expect(button.onPressed, isNull, reason: 'below the 3-sticker floor');
   });
 
   testWidgets('a tagging failure offers a retry, never looks like loss', (

@@ -10,6 +10,7 @@ import '../encoder/native_webp_encoder.dart';
 import '../encoder/static_encoder.dart';
 import '../encoder/tray_icon_encoder.dart';
 import '../export/exporter.dart';
+import '../export/pack_export_service.dart';
 import '../export/pack_stager.dart';
 import '../export/sticker_validator.dart';
 import '../export/webp_media_probe.dart';
@@ -42,6 +43,7 @@ class AppDependencies {
     required this.tagging,
     required this.exporter,
     required this.packStager,
+    required this.packExport,
     required this.packs,
     required this.sharing,
     required this.stickerDirectory,
@@ -62,6 +64,10 @@ class AppDependencies {
   final TaggingOrchestrator tagging;
   final Exporter exporter;
   final PackStager packStager;
+
+  /// Stage-then-export, in that order. The screens use this, not [exporter]
+  /// directly — firing the intent before staging races an unwritten directory.
+  final PackExportService packExport;
 
   /// Pack creation and growth, including the silent static→animated promotion.
   final PackService packs;
@@ -96,6 +102,14 @@ class AppDependencies {
 
     final tagger = MlKitTagger();
     const animated = AnimatedEncoder();
+    final stager = PackStager();
+    final exporter = WhatsAppExporter(
+      validator: StickerValidator(const WebpMediaProbe()),
+      channel: PlatformStickerChannel(),
+      // Must match `android:authorities` in the manifest, which derives it
+      // from the applicationId.
+      authority: 'com.arjun.whatsapp_sticker_studio.stickercontentprovider',
+    );
 
     return AppDependencies(
       database: database,
@@ -106,14 +120,13 @@ class AppDependencies {
       trayIconEncoder: TrayIconEncoder(NativeWebpEncoder()),
       tagger: tagger,
       tagging: TaggingOrchestrator(tagger, store, search: search),
-      exporter: WhatsAppExporter(
-        validator: StickerValidator(const WebpMediaProbe()),
-        channel: PlatformStickerChannel(),
-        // Must match `android:authorities` in the manifest, which derives it
-        // from the applicationId.
-        authority: 'com.arjun.whatsapp_sticker_studio.stickercontentprovider',
+      exporter: exporter,
+      packStager: stager,
+      packExport: PackExportService(
+        store: store,
+        stager: stager,
+        exporter: exporter,
       ),
-      packStager: PackStager(),
       packs: PackService(
         store: store,
         trayIcons: TrayIconEncoder(NativeWebpEncoder()),

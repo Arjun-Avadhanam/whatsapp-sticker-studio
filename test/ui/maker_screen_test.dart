@@ -290,6 +290,31 @@ void main() {
     expect(find.text('dog'), findsOneWidget);
   });
 
+  testWidgets('a saved sticker can be filed into a pack', (tester) async {
+    // Only a pack reaches WhatsApp — a loose sticker cannot — so this path is
+    // what makes a saved sticker usable at all.
+    final controller = await pump(tester, source: FakeSource(image()));
+
+    await tester.tap(find.text('Gallery'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save sticker'));
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await controller.pendingTagging;
+    });
+    await tester.pump();
+    await scrollToBottom(tester);
+
+    await tester.tap(find.byKey(const Key('add-to-pack')));
+    // Not pumpAndSettle: the sheet shows an indeterminate spinner while it
+    // loads, which schedules frames forever.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Add to pack'), findsWidgets);
+    expect(find.text('New pack'), findsOneWidget);
+  });
+
   testWidgets('a tagging failure offers a retry, never looks like loss', (
     tester,
   ) async {

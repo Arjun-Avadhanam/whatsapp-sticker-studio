@@ -68,18 +68,21 @@ void main() {
   });
 
   group('creating a pack', () {
-    test('a new pack takes its kind and tray icon from the first sticker', () async {
-      final first = await sticker();
+    test(
+      'a new pack takes its kind and tray icon from the first sticker',
+      () async {
+        final first = await sticker();
 
-      final pack = await packs.createPack(name: 'Inside jokes', first: first);
+        final pack = await packs.createPack(name: 'Inside jokes', first: first);
 
-      expect(pack.name, 'Inside jokes');
-      expect(pack.stickerIds, [first.id]);
-      expect(pack.isAnimated, isFalse);
-      // Generated, never asked for: every pack needs a 96x96 icon and the user
-      // should not have to make a second decision to get one.
-      expect(File(pack.trayIconPath).existsSync(), isTrue);
-    });
+        expect(pack.name, 'Inside jokes');
+        expect(pack.stickerIds, [first.id]);
+        expect(pack.isAnimated, isFalse);
+        // Generated, never asked for: every pack needs a 96x96 icon and the user
+        // should not have to make a second decision to get one.
+        expect(File(pack.trayIconPath).existsSync(), isTrue);
+      },
+    );
 
     test('the sticker is linked back to the pack', () async {
       final first = await sticker();
@@ -97,7 +100,10 @@ void main() {
     });
 
     test('the pack is persisted, not just returned', () async {
-      final pack = await packs.createPack(name: 'Jokes', first: await sticker());
+      final pack = await packs.createPack(
+        name: 'Jokes',
+        first: await sticker(),
+      );
       expect(await store.getPack(pack.id), equals(pack));
     });
 
@@ -105,10 +111,16 @@ void main() {
       // WhatsApp allows at most 10 packs from one app. Refusing here beats
       // WhatsApp refusing opaquely at export.
       for (var i = 0; i < WhatsAppSpec.maxPacks; i++) {
-        await packs.createPack(name: 'Pack $i', first: await sticker(id: 'a$i'));
+        await packs.createPack(
+          name: 'Pack $i',
+          first: await sticker(id: 'a$i'),
+        );
       }
       await expectLater(
-        packs.createPack(name: 'One too many', first: await sticker(id: 'z')),
+        packs.createPack(
+          name: 'One too many',
+          first: await sticker(id: 'z'),
+        ),
         throwsA(isA<PackLimitException>()),
       );
     });
@@ -178,44 +190,50 @@ void main() {
       expect(stored.sizeBytes, 2048);
     });
 
-    test('an animated joining a static pack promotes every existing static', () async {
-      var pack = await packs.createPack(
-        name: 'Jokes',
-        first: await sticker(id: 's1'),
-      );
-      pack = await packs.addSticker(pack, await sticker(id: 's2'));
-      expect(pack.isAnimated, isFalse);
-      expect(promoter.calls, 0);
+    test(
+      'an animated joining a static pack promotes every existing static',
+      () async {
+        var pack = await packs.createPack(
+          name: 'Jokes',
+          first: await sticker(id: 's1'),
+        );
+        pack = await packs.addSticker(pack, await sticker(id: 's2'));
+        expect(pack.isAnimated, isFalse);
+        expect(promoter.calls, 0);
 
-      pack = await packs.addSticker(
-        pack,
-        await sticker(id: 'a1', kind: StickerKind.animated),
-      );
+        pack = await packs.addSticker(
+          pack,
+          await sticker(id: 'a1', kind: StickerKind.animated),
+        );
 
-      // Both existing statics, and not the newcomer, which is already animated.
-      expect(promoter.calls, 2);
-      expect(pack.isAnimated, isTrue);
-      for (final id in ['s1', 's2']) {
-        expect((await store.getSticker(id))!.kind, StickerKind.animated);
-      }
-    });
+        // Both existing statics, and not the newcomer, which is already animated.
+        expect(promoter.calls, 2);
+        expect(pack.isAnimated, isTrue);
+        for (final id in ['s1', 's2']) {
+          expect((await store.getSticker(id))!.kind, StickerKind.animated);
+        }
+      },
+    );
 
-    test('promotion overwrites in place, keeping the file path valid', () async {
-      final pack = await packs.createPack(
-        name: 'Motion',
-        first: await sticker(id: 'a1', kind: StickerKind.animated),
-      );
-      final still = await sticker(id: 's1');
-      final originalPath = still.filePath;
+    test(
+      'promotion overwrites in place, keeping the file path valid',
+      () async {
+        final pack = await packs.createPack(
+          name: 'Motion',
+          first: await sticker(id: 'a1', kind: StickerKind.animated),
+        );
+        final still = await sticker(id: 's1');
+        final originalPath = still.filePath;
 
-      await packs.addSticker(pack, still);
+        await packs.addSticker(pack, still);
 
-      final stored = (await store.getSticker('s1'))!;
-      // Other records point at this path (thumbnailPath, the staged pack, the
-      // share sheet). Writing a new file would leave those dangling.
-      expect(stored.filePath, originalPath);
-      expect(File(originalPath).lengthSync(), 2048);
-    });
+        final stored = (await store.getSticker('s1'))!;
+        // Other records point at this path (thumbnailPath, the staged pack, the
+        // share sheet). Writing a new file would leave those dangling.
+        expect(stored.filePath, originalPath);
+        expect(File(originalPath).lengthSync(), 2048);
+      },
+    );
 
     test('an all-static pack never promotes anything', () async {
       var pack = await packs.createPack(

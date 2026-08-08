@@ -7,6 +7,7 @@ import '../sources/camera_source.dart';
 import '../sources/gallery_source.dart';
 import '../models/sticker_record.dart';
 import '../sources/source.dart';
+import 'add_to_pack_sheet.dart';
 import 'maker_controller.dart';
 
 /// Turn a picked image or clip into a compliant sticker.
@@ -68,6 +69,37 @@ class _MakerScreenState extends State<MakerScreen> {
     );
   }
 
+  /// Offers to file the sticker that was just saved into a pack.
+  ///
+  /// Only a pack can be added to WhatsApp — a loose sticker cannot — so this is
+  /// the step between making one and being able to use it.
+  Future<void> _addToPack() async {
+    final sticker = _controller.lastSaved;
+    if (sticker == null) return;
+
+    final pack = await showAddToPackSheet(
+      context: context,
+      dependencies: widget.dependencies,
+      sticker: sticker,
+    );
+    if (pack == null || !mounted) return; // backed out
+
+    setState(() {}); // the sticker's pack changed
+
+    final short = WhatsAppSpec.minStickersPerPack - pack.stickerIds.length;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          short > 0
+              // Says what is still needed rather than only celebrating: the
+              // pack cannot reach WhatsApp until it clears the floor.
+              ? 'Added to ${pack.name} · $short more to add it to WhatsApp'
+              : 'Added to ${pack.name}',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,7 +135,10 @@ class _MakerScreenState extends State<MakerScreen> {
           ],
           if (_controller.lastSaved != null) ...[
             const SizedBox(height: 16),
-            _TaggingStatusCard(controller: _controller),
+            _TaggingStatusCard(
+              controller: _controller,
+              onAddToPack: _addToPack,
+            ),
           ],
         ],
       ),
@@ -314,8 +349,13 @@ class _StaleNotice extends StatelessWidget {
 /// so a tagging failure is a missing convenience, never a lost sticker. The
 /// copy has to say that, or a red "failed" reads as "your sticker is gone".
 class _TaggingStatusCard extends StatelessWidget {
-  const _TaggingStatusCard({required this.controller});
+  const _TaggingStatusCard({
+    required this.controller,
+    required this.onAddToPack,
+  });
+
   final MakerController controller;
+  final VoidCallback onAddToPack;
 
   @override
   Widget build(BuildContext context) {
@@ -372,6 +412,21 @@ class _TaggingStatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             detail,
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              // Offered whether or not tagging succeeded — the two are
+              // unrelated, and a sticker with no tags is still perfectly good
+              // in a pack.
+              child: TextButton.icon(
+                key: const Key('add-to-pack'),
+                onPressed: onAddToPack,
+                icon: const Icon(Icons.library_add_outlined),
+                label: Text(
+                  saved.packId == null ? 'Add to pack' : 'Move to another pack',
+                ),
+              ),
+            ),
           ],
         ),
       ),

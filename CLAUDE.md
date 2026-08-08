@@ -197,9 +197,59 @@ a clip is by far the strongest way to fit the 500 KB ceiling, and good animated 
 loops rather than the full 10 s. When `EncoderBudgetException` fires, its message already says
 "try trimming it shorter" — surface that, do not replace it with a generic failure.
 
+**Widget tests: real `dart:io` async must START inside `tester.runAsync`.** `testWidgets` bodies run
+in a fake-time zone. Work that resolves through **microtasks** completes there fine — including
+drift's in-memory SQLite, which is why store calls in widget tests have always worked. But genuine
+file IO completes through the **real event loop**, which the fake zone never turns, so
+`await file.readAsBytes()` in a test body **hangs forever with no error, no stack and no output** —
+it does not fail, the run just stops. Diagnosed 2026-08-08 after it silently ate three full-timeout
+runs.
+- A `runAsync` window *afterwards* does **not** rescue work already in flight. The operation has to
+  begin inside it: `await tester.runAsync(() async { await tester.tap(...); await Future.delayed(...); })`.
+- `tester.pump()` cannot be called inside `runAsync`. So a flow needing **both** pumped frames and
+  real IO, in that order, is undrivable — which is why the new-pack name entry is inline in the sheet
+  rather than an `AlertDialog` over it (popping the dialog needs frames; the tray-icon write that
+  follows needs the real loop).
+- **Never `pumpAndSettle` while an indeterminate `CircularProgressIndicator` is on screen.** It
+  schedules frames forever, so settling only ends at its 10-minute timeout. Pump manually.
+- Sync IO (`writeAsBytesSync`) sidesteps all of this and is the right choice in fixtures.
+
+**drift's `dateTime()` column stores unix SECONDS.** `DateTime.now()`'s sub-second part does not
+survive a round trip, so a record saved and re-read compares **unequal** to the in-memory original.
+`PackService.createPack` re-reads after saving for this reason. Nothing needs sub-second precision
+(`createdAt` only drives Library sort order), so this is recorded rather than migrated — but Task 14
+should not assume `saved == fetched`.
+
 **Tray icons are generated, not asked for.** Every pack needs a 96×96 ≤50 KB icon and `PackRecord`
 requires the path; the plan never says where it comes from. Use `TrayIconEncoder` on the pack's first
 sticker automatically — one less decision to put in front of the user.
+
+## Packs (Task 13 · #42 — decided 2026-08-08)
+
+**A pack is animated if ANY sticker in it is animated. Statics are promoted, silently, on demand.**
+This is the one rule that makes the homogeneity constraint invisible, and it yields exactly two
+cases: a static joining an animated pack is promoted, and an animated joining a static pack flips the
+pack and promotes **every existing member**. The second is costly — one `promoteStatic` per member —
+and that cost is accepted deliberately, because the alternative is telling the user their pack is the
+wrong kind, which is the error the whole design exists to avoid. Never flip animated→static: there is
+no un-animating, and the installed flag may be sticky.
+
+**Promotion overwrites the sticker file IN PLACE.** Other records already point at that path — the
+record's own `thumbnailPath`, anything staged for export, a pending share — so writing a new file
+would leave those dangling and orphan the old one.
+
+**`StaticPromoter` is a separate interface from `Encoder`.** `AnimatedEncoder` implements both. Packs
+need *promotion* only, and depending on the full encoder would drag ffmpeg into what is otherwise
+pure bookkeeping, making the entire feature untestable off-device.
+
+**`createPack` requires its first sticker.** A pack is invalid without a tray icon and the tray icon
+is generated *from* a sticker, so an empty pack could only exist in a state WhatsApp rejects. Matches
+the UI flow anyway (*Add to pack → New pack*).
+
+**Never name the promotion in UI copy.** The busy state says only "Adding…". A widget test asserts
+the words "animat", "convert", "static" and "frame" appear nowhere in the sheet. Packs below the
+3-sticker floor *do* say how many more they need — that is honest and actionable, and unrelated to
+promotion.
 
 ## Sharing (Task 12 — decided 2026-08-06)
 

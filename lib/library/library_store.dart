@@ -199,8 +199,18 @@ class DriftLibraryStore implements LibraryStore {
   }
 
   @override
-  Future<List<PackRecord>> allPacks() async =>
-      (await _db.select(_db.packs).get()).map(_fromPackRow).toList();
+  /// Newest first, with the same id tiebreak as [allStickers] and for the same
+  /// reason: `createdAt` is stored to the second, so packs made in one sitting
+  /// would otherwise reorder themselves between rebuilds.
+  @override
+  Future<List<PackRecord>> allPacks() async {
+    final query = _db.select(_db.packs)
+      ..orderBy([
+        (t) => OrderingTerm.desc(t.createdAt),
+        (t) => OrderingTerm.desc(t.id),
+      ]);
+    return (await query.get()).map(_fromPackRow).toList();
+  }
 
   // ---- Row <-> record mapping --------------------------------------------
 

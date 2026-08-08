@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../app/dependencies.dart';
 import 'library_screen.dart';
 import 'maker_screen.dart';
+import 'packs_screen.dart';
 
-/// Two tabs: make a sticker, and browse what you have made.
+/// Three tabs: make a sticker, browse what you have made, and send a pack.
 ///
 /// The Scaffold here is load-bearing beyond layout: it supplies the Material
 /// ancestor the Library's InkWell tiles need.
@@ -16,7 +17,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Sticker Studio'),
@@ -24,6 +25,10 @@ class HomeScreen extends StatelessWidget {
             tabs: [
               Tab(icon: Icon(Icons.add_circle_outline), text: 'Make'),
               Tab(icon: Icon(Icons.grid_view_outlined), text: 'Library'),
+              // A tab of its own rather than a corner of the Library: a pack is
+              // the only route into WhatsApp's sticker tray, so reaching one
+              // must not depend on remembering where it is hidden.
+              Tab(icon: Icon(Icons.folder_copy_outlined), text: 'Packs'),
             ],
           ),
         ),
@@ -31,6 +36,7 @@ class HomeScreen extends StatelessWidget {
           children: [
             MakerScreen(dependencies: dependencies),
             LibraryScreen(dependencies: dependencies),
+            PacksScreen(dependencies: dependencies),
           ],
         ),
       ),

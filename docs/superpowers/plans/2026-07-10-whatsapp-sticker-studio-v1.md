@@ -1297,18 +1297,44 @@ abstract class SharingService {
 **Branch:** `feat/library-ui`
 
 **Files:**
-- Create: `lib/ui/library_screen.dart`
-- Test: `test/ui/library_screen_test.dart` (widget test with fake SearchService/LibraryStore)
+- Create: `lib/ui/library_screen.dart`, `lib/ui/sticker_detail_sheet.dart`, `lib/ui/packs_screen.dart`
+- Test: `test/ui/library_screen_test.dart`, `test/ui/sticker_detail_sheet_test.dart`,
+  `test/ui/packs_screen_test.dart`, `test/library/search_index_migration_test.dart`
 
 **Interfaces:**
-- Consumes: `SearchService`, `LibraryStore`, `SharingService`.
-- Produces: a grid + search bar + per-sticker actions (share, edit metadata, add-to-pack).
+- Consumes: `SearchService`, `LibraryStore`, `SharingService`, `PackService`, `PackExportService`.
+- Produces: a grid + search bar + per-sticker actions (edit metadata, add-to-pack, export file),
+  **plus a Packs tab**.
 
-- [ ] **Step 1: Write failing widget test** — typing a query calls `SearchService.query` and renders the returned stickers in order; the edit sheet calls `LibraryStore.updateMetadata`.
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** the grid, debounced search bar, metadata edit sheet, share/add-to-pack actions.
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit & push** on `feat/library-ui`.
+- [x] **Step 1: Write failing widget test** — typing a query calls `SearchService.query` and renders the returned stickers in order; the edit sheet calls `LibraryStore.updateMetadata`.
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Implement** the grid, debounced search bar, metadata edit sheet, share/add-to-pack actions.
+
+  > **⚠️ SCOPE, as built 2026-08-08 — three additions the plan did not anticipate.**
+  >
+  > **(a) Field-weighted search first (schema v4).** The plan assumed the Task 10 ranking was
+  > finished. It was not: `searchBlob()` flattened auto-tags and the user's own words into ONE FTS5
+  > column, so a sticker actually *named* "sports" ranked no higher than anything ML Kit labelled
+  > "sports" — which matters far more now that real-content testing confirmed those labels are
+  > generic. Split into `(id UNINDEXED, mine, auto)` weighted 10:1. Done first because every later
+  > step displays its results; building the UI on known-wrong ranking then swapping the schema
+  > underneath would have meant doing it twice.
+  >
+  > **(b) A Packs tab, closing a v1 blocker.** A pack was exportable only in the moment after adding
+  > a sticker in the Maker — close the app and every pack was unreachable. Since a pack is the only
+  > route into WhatsApp's tray, users could build packs they could never send.
+  >
+  > **(c) The export floor dropped from 3 to 1** (user decision, 2026-08-08), so a single sticker
+  > reaches WhatsApp without inventing two more. See `WhatsAppSpec.enforcedMinStickersPerPack`.
+  >
+  > **Sharing appears here as *Export file*, not in the Maker** — see `CLAUDE.md` "Export UI".
+  > **Not built:** removing a sticker from a pack (removing the first orphans the tray icon, and it
+  > needs its own rule).
+- [x] **Step 4: Run → PASS.** 277 tests, `dart format` and `flutter analyze` clean, debug APK builds.
+- [x] **Step 5: Commit & push** on `feat/library-ui`.
+- [ ] **Step 6: Device pass** — walk the real Library on a real sticker set. This is the first honest
+  look at whether **search actually feels right**, which is the assumption the whole screen rests on;
+  Task 9's tagging evidence and Task 10's ranking have never met a real library together.
 
 ---
 

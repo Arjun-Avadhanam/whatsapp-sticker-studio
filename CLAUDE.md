@@ -265,6 +265,64 @@ the words "animat", "convert", "static" and "frame" appear nowhere in the sheet.
 3-sticker floor *do* say how many more they need — that is honest and actionable, and unrelated to
 promotion.
 
+## Library & packs UI (Task 14 — decided 2026-08-08)
+
+**Three tabs now: Make · Library · Packs.** Packs earned its own tab because a
+pack is the **only** route into WhatsApp's sticker tray, and before this screen a
+pack was exportable *only* in the moment right after adding a sticker in the
+Maker — close the app and every pack became unreachable. That was a v1 blocker,
+not a missing convenience.
+
+**A single sticker can now go to WhatsApp.** `WhatsAppSpec.minStickersPerPack`
+stays **3** because that is what WhatsApp documents; the gate reads
+`enforcedMinStickersPerPack`, now **1**. Rationale, risk and the one-number revert
+are recorded at the constant. Consequence to remember: **one-sticker packs are the
+common case**, so singular/plural copy is on screen constantly — `stickerCount()`
+exists so the surfaces cannot disagree.
+
+**Ordering is a store guarantee, with an id tiebreak.** `allStickers` and
+`allPacks` are both newest-first, tiebroken by id. Not defensive: drift stores
+`dateTime` as unix **seconds**, so two things made in the same second would
+otherwise come back in arbitrary order and the grid would reshuffle between
+rebuilds. Ids are minted from `microsecondsSinceEpoch`, so a higher id is later.
+
+**Search: an empty query goes to the STORE, not to search.** FTS5's `MATCH` on an
+empty string returns nothing, so routing a cleared field through search blanks the
+library the instant the ✕ is tapped — it looks exactly like data loss.
+
+**Search responses carry a request id.** Debouncing (300 ms) reduces overlap but
+does not remove it: a slow query can still be in flight when a later one resolves,
+and its stale results would land last and win. Verified load-bearing by removing
+the guard and watching the superseded results take over.
+
+**"Nothing matched" and "no stickers yet" are separate states.** Conflating them
+tells a user with a full library that it is empty.
+
+**Auto-tags are shown in the editor but have NO delete affordance.** Two reasons,
+the second decisive: the user must never have to clear machine output to add their
+own words, and a deletion would silently come back anyway because `setAutoTags`
+replaces the list wholesale on every tagging run. They are displayed because they
+explain why a sticker turns up in an unexpected search, styled lighter to match
+how much less they weigh.
+
+**Add-to-pack is opened by the CALLER, after the detail sheet closes.** The picker
+is itself a bottom sheet; stacking one over another is poor on a phone *and*
+reinstates the fake-async ordering trap (a route pop needs pumped frames, the
+tray-icon write needs the real event loop). Hence `StickerDetailResult` carries
+two facts rather than one flag. Add-to-pack **saves pending edits first** — losing
+a half-typed name to another action is silent data loss.
+
+**Sharing is surfaced as *Export file*, never "send sticker."** Device-verified
+2026-08-06: a shared WebP arrives in WhatsApp as an ordinary image. A test asserts
+the wrong wording appears nowhere.
+
+**Considered and NOT done: weighting the name above manual tags.** Both are the
+user's own words and equally deliberate, so they share the `mine` column at 10×.
+Known consequence: bm25 length-normalises the whole column, so long notes slightly
+soften a name match on that sticker. Splitting into `(name, tags, auto)` is another
+schema version — do it only if real use shows a problem, since ranking tuned on
+speculation is how the semantic-threshold bug happened.
+
 ## Device walk-through of the Maker (Task 13 · #44 — 2026-08-08)
 
 Real end-to-end run on the A059P against `com.whatsapp` v2.26.27.85. **Everything worked.** Findings

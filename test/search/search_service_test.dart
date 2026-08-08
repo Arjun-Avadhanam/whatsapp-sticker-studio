@@ -121,6 +121,57 @@ void main() {
     );
   });
 
+  group('field weighting', () {
+    test('a sticker the user NAMED outranks one merely auto-tagged', () async {
+      // The point of splitting the index. Device testing 2026-08-08 showed ML
+      // Kit labels the scene, not the subject — a footballer came back as
+      // `sports, team, event, stadium, competition` — so a machine label is weak
+      // evidence while a name the user typed is the strongest we have. Before
+      // this, searchBlob() flattened both into one column and bm25 could not
+      // tell them apart.
+      await save([
+        stickerOf(id: 'auto', autoTags: const ['sports']),
+        stickerOf(id: 'named', manualName: 'sports'),
+      ]);
+
+      final hits = await search.query('sports');
+
+      expect(hits.map((h) => h.record.id), ['named', 'auto']);
+      expect(hits.first.score, greaterThan(hits.last.score));
+    });
+
+    test('a manual tag also outranks an auto tag', () async {
+      // manualTags and notes are the user's words too, so they belong on the
+      // heavy side of the index alongside the name.
+      await save([
+        stickerOf(id: 'auto', autoTags: const ['dog']),
+        stickerOf(id: 'mine', manualTags: const ['dog']),
+      ]);
+
+      expect((await search.query('dog')).first.record.id, 'mine');
+    });
+
+    test('auto-tags are still findable, just outweighed', () async {
+      // Downweighting must not become discarding — an auto-tag is the only way
+      // to find a sticker the user never named.
+      await save([
+        stickerOf(id: 'auto', autoTags: const ['stadium']),
+      ]);
+
+      expect((await search.query('stadium')).map((h) => h.record.id), ['auto']);
+    });
+
+    test('the id is still not searchable', () async {
+      // Regression: `id UNINDEXED` must survive the column split. Without it,
+      // querying "1" matches every sticker whose id contains a 1.
+      await save([
+        stickerOf(id: 'sticker1', autoTags: const ['dog']),
+      ]);
+
+      expect(await search.query('sticker1'), isEmpty);
+    });
+  });
+
   group('robustness', () {
     test(
       'a query matching nothing returns empty rather than throwing',

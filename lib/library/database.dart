@@ -80,7 +80,22 @@ class AppDatabase extends _$AppDatabase {
   static const String embeddingTable = 'sticker_embeddings';
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
+
+  /// True when this open **rebuilt the search index and left it empty**.
+  ///
+  /// The v4 migration recreates the FTS table with different columns, and the
+  /// store's per-save reindex hook only fires when a sticker is next written —
+  /// so without an explicit rebuild every existing sticker silently disappears
+  /// from search until the user happens to edit it. That failure is total and
+  /// invisible, so it gets a flag rather than a hope.
+  ///
+  /// The migration cannot rebuild it itself: the searchable text is defined by
+  /// `StickerRecord.mineBlob`/`autoBlob` in Dart, and reproducing that in SQL
+  /// here would be a second definition free to drift from the first. So the
+  /// migration raises this and `AppDependencies.bootstrap` calls
+  /// `SearchService.reindex()` on seeing it.
+  bool searchIndexNeedsRebuild = false;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -91,10 +106,18 @@ class AppDatabase extends _$AppDatabase {
     },
     onUpgrade: (m, from, to) async {
       // Explicit, additive migrations — never `fallbackToDestructiveMigration`.
-      // A user's sticker library is not disposable, and both of these are
-      // derived data that rebuild from the Stickers table anyway.
+      // A user's sticker library is not disposable, and all of these are derived
+      // data that rebuild from the Stickers table anyway.
       if (from < 2) await _createSearchIndex();
       if (from < 3) await _createEmbeddingTable();
+      if (from < 4) {
+        // The column layout changed, so the old table cannot be reused. Dropped
+        // rather than migrated in place: FTS5 has no ALTER for this, and the
+        // contents are fully derivable.
+        await customStatement('DROP TABLE IF EXISTS $searchTable;');
+        await _createSearchIndex();
+        searchIndexNeedsRebuild = true;
+      }
     },
   );
 
@@ -107,9 +130,19 @@ class AppDatabase extends _$AppDatabase {
   /// searchable text, so a query like "1" would match every sticker whose id
   /// contains a 1. The id is stored only so a hit can be mapped back to a
   /// record.
+  ///
+  /// **Two text columns, not one** (schema v4). `mine` holds the user's words —
+  /// name, manual tags, notes — and `auto` holds what vision guessed, so bm25
+  /// can weight them differently. FTS5 only supports per-*column* weights, which
+  /// is the whole reason for the split; a single blob made a sticker the user
+  /// named rank no higher than one a model happened to label the same way.
+  ///
+  /// Column ORDER is load-bearing: the bm25 weights in [FtsSearchService] are
+  /// positional, so reordering these silently moves the weights to the wrong
+  /// column and produces working-looking search with wrong ranking.
   Future<void> _createSearchIndex() => customStatement(
     'CREATE VIRTUAL TABLE IF NOT EXISTS $searchTable '
-    'USING fts5(id UNINDEXED, blob);',
+    'USING fts5(id UNINDEXED, mine, auto);',
   );
 
   /// One embedding per sticker, stored as raw Float32 bytes.

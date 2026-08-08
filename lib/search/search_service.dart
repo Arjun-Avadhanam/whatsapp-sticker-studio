@@ -46,6 +46,18 @@ abstract class SearchService {
 /// [SearchService] over SQLite's FTS5, ranked by text relevance blended with
 /// how often the sticker has actually been sent.
 class FtsSearchService implements SearchService {
+  /// bm25 weight for the user's own words (name, manual tags, notes).
+  ///
+  /// Compile-time constants rather than constructor parameters because they are
+  /// interpolated into SQL, and taking them as configuration would mean building
+  /// a query string out of caller-supplied values.
+  static const _mineWeight = 10.0;
+
+  /// bm25 weight for what vision guessed. An order of magnitude below
+  /// [_mineWeight] — enough that a named sticker always wins on the same term,
+  /// while an auto-tag still finds a sticker the user never named.
+  static const _autoWeight = 1.0;
+
   FtsSearchService(
     this._db,
     this._store, {
@@ -148,12 +160,21 @@ class FtsSearchService implements SearchService {
     // bm25() is FTS5's relevance score: MORE negative means a better match.
     // Negating it turns it into "higher is better", which is what SearchHit
     // promises and what the usage bonus can then be added to.
+    //
+    // The weights are POSITIONAL, one per column of the FTS5 table, in
+    // declaration order — `(id UNINDEXED, mine, auto)`. An UNINDEXED column
+    // still occupies a slot, hence the leading 0.0; getting that wrong shifts
+    // every weight onto the wrong column and yields search that looks like it
+    // works while ranking badly. Pinned by an ordering assertion in
+    // `search_service_test.dart` ("field weighting"), not by reading the docs.
+    const weights = '0.0, $_mineWeight, $_autoWeight';
+
     final rows = await _db
         .customSelect(
-          'SELECT id, -bm25(${AppDatabase.searchTable}) AS text_score '
+          'SELECT id, -bm25(${AppDatabase.searchTable}, $weights) AS text_score '
           'FROM ${AppDatabase.searchTable} '
           'WHERE ${AppDatabase.searchTable} MATCH ?1 '
-          'ORDER BY bm25(${AppDatabase.searchTable}) '
+          'ORDER BY bm25(${AppDatabase.searchTable}, $weights) '
           'LIMIT ?2;',
           variables: [Variable<String>(match), Variable<int>(limit)],
         )
@@ -250,9 +271,12 @@ class FtsSearchService implements SearchService {
   /// turning search into a most-used list.
   double _usageBonus(int usageCount) => usageWeight * math.log(1 + usageCount);
 
+  /// Must write the same columns as `DriftLibraryStore._reindex` — this is the
+  /// rebuild path, and an index rebuilt differently from how it is maintained
+  /// would make search results depend on whether a reindex had happened.
   Future<void> _insert(StickerRecord sticker) => _db.customStatement(
-    'INSERT INTO ${AppDatabase.searchTable}(id, blob) VALUES (?, ?);',
-    [sticker.id, sticker.searchBlob()],
+    'INSERT INTO ${AppDatabase.searchTable}(id, mine, auto) VALUES (?, ?, ?);',
+    [sticker.id, sticker.mineBlob(), sticker.autoBlob()],
   );
 
   /// Turns raw user input into a safe FTS5 MATCH expression, or `null` when

@@ -109,8 +109,10 @@ class DriftLibraryStore implements LibraryStore {
       [r.id],
     );
     await _db.customStatement(
-      'INSERT INTO ${AppDatabase.searchTable}(id, blob) VALUES (?, ?);',
-      [r.id, r.searchBlob()],
+      'INSERT INTO ${AppDatabase.searchTable}(id, mine, auto) '
+      'VALUES (?, ?, ?);',
+      // Two columns so bm25 can weight the user's own words above the machine's.
+      [r.id, r.mineBlob(), r.autoBlob()],
     );
   }
 

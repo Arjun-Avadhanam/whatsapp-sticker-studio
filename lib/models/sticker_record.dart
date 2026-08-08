@@ -71,16 +71,35 @@ class StickerRecord {
   final int sizeBytes;
   final TaggingStatus taggingStatus;
 
-  /// All searchable text as one string, for the FTS5 index (Task 10).
+  /// The user's own words: name, manual tags, notes.
   ///
-  /// Nulls and blanks are dropped rather than joined, so the blob never contains
+  /// Indexed in its **own FTS5 column** and weighted far above [autoBlob], because
+  /// the two are not equally good evidence. Device testing 2026-08-08 showed ML
+  /// Kit labels the *scene* rather than the subject — a footballer came back as
+  /// `sports, team, event, stadium, competition` — so a machine label is a weak
+  /// signal, while a word the user chose is the strongest we have. Flattened into
+  /// one column, bm25 could not tell them apart and a sticker actually *named*
+  /// "sports" ranked below anything the labeller happened to call "sports".
+  String mineBlob() => _join([manualName, ...manualTags, notes]);
+
+  /// What vision guessed. Searchable, but outweighed — see [mineBlob].
+  ///
+  /// Still indexed, and that matters: an auto-tag is the only way to find a
+  /// sticker the user never got around to naming. Downweighting must not become
+  /// discarding.
+  String autoBlob() => _join(autoTags);
+
+  /// Everything searchable, for the **embedding** (Task 10's semantic layer).
+  ///
+  /// Kept whole deliberately. Column weights are a keyword-ranking device; a
+  /// vector has no columns, and meaning should be drawn from every scrap of text
+  /// available regardless of who wrote it.
+  String searchBlob() => _join([...autoTags, manualName, ...manualTags, notes]);
+
+  /// Nulls and blanks are dropped rather than joined, so a blob never contains
   /// doubled separators that would pollute tokenisation.
-  String searchBlob() => [
-    ...autoTags,
-    manualName,
-    ...manualTags,
-    notes,
-  ].whereType<String>().where((s) => s.trim().isNotEmpty).join(' ');
+  static String _join(Iterable<String?> parts) =>
+      parts.whereType<String>().where((s) => s.trim().isNotEmpty).join(' ');
 
   /// Returns a copy with the named fields replaced.
   ///

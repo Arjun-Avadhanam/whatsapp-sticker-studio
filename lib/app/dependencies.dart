@@ -100,6 +100,18 @@ class AppDependencies {
       embedder: NativeTextEmbedder(),
     );
 
+    // A schema upgrade can leave the search index empty — v4 changed the FTS5
+    // column layout, and the store's per-save hook only covers stickers written
+    // *after* it. Rebuilding here is the difference between an upgraded user's
+    // library being searchable and silently not.
+    //
+    // Reading `allStickers()` first is deliberate: drift opens lazily, so the
+    // migration (and therefore the flag) has not run until something queries.
+    final existing = await store.allStickers();
+    if (database.searchIndexNeedsRebuild && existing.isNotEmpty) {
+      await search.reindex();
+    }
+
     final tagger = MlKitTagger();
     const animated = AnimatedEncoder();
     final stager = PackStager();

@@ -184,6 +184,33 @@ void main() {
     expect(File(returned!.trayIconPath).existsSync(), isTrue);
   });
 
+  testWidgets('the name field stays visible above the keyboard', (
+    tester,
+  ) async {
+    // Regression, found on device 2026-08-08. A bottom sheet is anchored to the
+    // bottom of the screen and Flutter does NOT lift it for the keyboard the
+    // way it lifts a dialog, so with the field autofocused the keyboard covered
+    // the entire sheet and the user typed blind into something invisible.
+    const keyboard = 400.0;
+    tester.view.viewInsets = const FakeViewPadding(bottom: keyboard * 3);
+    addTearDown(tester.view.resetViewInsets);
+
+    final sticker = await saveSticker();
+    await openSheet(tester, sticker);
+
+    await tester.tap(find.text('New pack'));
+    await settle(tester);
+
+    final field = tester.getRect(find.byKey(const Key('pack-name')));
+    final screenHeight =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    expect(
+      field.bottom,
+      lessThanOrEqualTo(screenHeight - keyboard),
+      reason: 'the field must sit above the keyboard, not behind it',
+    );
+  });
+
   testWidgets('promotion is never mentioned to the user', (tester) async {
     // A static joining an animated pack is re-encoded as a 2-frame animation.
     // The user must not learn that: across ~9,700 scraped reviews of competing

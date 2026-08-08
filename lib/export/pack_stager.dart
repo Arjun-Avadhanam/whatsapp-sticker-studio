@@ -66,7 +66,7 @@ class PackStager {
         // — Task 13 can let the user pick them. They only affect searchability
         // inside WhatsApp's tray, not validity.
         'emojis': const <String>[],
-        'accessibility_text': sticker.manualName ?? '',
+        'accessibility_text': _describe(sticker),
       });
     }
 
@@ -91,6 +91,28 @@ class PackStager {
     ).writeAsString(const JsonEncoder.withIndent('  ').convert(manifest));
 
     return dir;
+  }
+
+  /// A screen-reader description for one sticker.
+  ///
+  /// `accessibility_text` is the **only** per-sticker text WhatsApp's
+  /// third-party API accepts — there is no display-name field, which is why a
+  /// pack's stickers all show the pack's name in the tray. So this is the one
+  /// place a sticker can describe itself, and it was previously left empty for
+  /// everything the Maker makes, since `manualName` is null there. A screen
+  /// reader got nothing at all.
+  ///
+  /// Auto-tags are the fallback, and this is the one job they are good at:
+  /// device testing 2026-08-08 showed ML Kit labels the scene rather than the
+  /// subject ("sports, team, event"), which is weak for search but a perfectly
+  /// reasonable image description. Text read by OCR comes first when present —
+  /// "the one that says LOL" is the most identifying thing about a sticker.
+  String _describe(StickerRecord sticker) {
+    final name = sticker.manualName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+
+    final tags = sticker.autoTags.where((t) => t.trim().isNotEmpty).toList();
+    return tags.isEmpty ? '' : tags.join(', ');
   }
 
   /// Reads the previous `image_data_version` and returns the next one.

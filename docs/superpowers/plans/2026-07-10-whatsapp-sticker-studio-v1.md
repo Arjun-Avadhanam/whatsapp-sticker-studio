@@ -1220,9 +1220,9 @@ abstract class SharingService {
 - Consumes: `Source`, `Encoder`, `LibraryStore`, `TaggingService`.
 - Produces: a screen; on "Save", persists via `LibraryStore` and kicks async tagging.
 
-- [ ] **Step 1: Write failing widget test** — pick (fake Source) → shows preview + fit-mode toggle + size/quality readout (from `QualityReport`) → tap Save → `LibraryStore.saveSticker` called once and async `TaggingService.tag` scheduled.
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** the flow: source picker (gallery / camera / Giphy / **paste X-Twitter link**) → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share". The X-link entry shows a paste field, constructs an `XLinkSource(url)`, and surfaces a friendly error if extraction returns `null`.
+- [x] **Step 1: Write failing widget test** — pick (fake Source) → shows preview + fit-mode toggle + size/quality readout (from `QualityReport`) → tap Save → `LibraryStore.saveSticker` called once and async `TaggingService.tag` scheduled.
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Implement** the flow: source picker (gallery / camera / Giphy / **paste X-Twitter link**) → Encoder (live `QualityReport`) → fit-mode selector → Save (persist + schedule tagging) → offer "Add to WhatsApp"/"Share". The X-link entry shows a paste field, constructs an `XLinkSource(url)`, and surfaces a friendly error if extraction returns `null`.
 
   > **⚠️ CORRECTED 2026-08-07 — "live `QualityReport`" holds for stills only.** Measured on device: a
   > static encode returns in well under a second, but a real 1.5 MB gallery video took **~24 s**
@@ -1237,7 +1237,17 @@ abstract class SharingService {
   > - When it will not fit, push **trimming** over quality — cost is near-linear in frame count, and
   >   `EncoderBudgetException` already carries that guidance. See `CLAUDE.md`.
 
-- [ ] **Step 3b: Add-to-pack silently promotes statics** *(added 2026-07-18 — see `CLAUDE.md`)*
+  > **⚠️ SCOPE, as built 2026-08-08.** Two source entries shipped — **Gallery** and **Camera**. Giphy
+  > and the X-link paste field are **not** in this screen: Giphy is Task 8 and the X extractor (Task 8B)
+  > has no confirmed success path or deploy target yet (see `CLAUDE.md`), so a paste field would offer a
+  > route that cannot work. `MakerScreen` takes an injectable `sources` map, so each is a one-line
+  > addition once its `Source` is real.
+  >
+  > **Also added beyond the plan, driven by device findings:** an optional **sticker name** field (the
+  > highest-signal searchable text there is, and the only per-sticker text WhatsApp accepts), and an
+  > honest tagging-status card with a retry. **Sharing was cut** from this screen — see `CLAUDE.md`.
+
+- [x] **Step 3b: Add-to-pack silently promotes statics** *(added 2026-07-18 — see `CLAUDE.md`)*
 
   When the user adds a **static** sticker to an **animated** pack, call
   `AnimatedEncoder.promoteStatic` (Task 6 Step 5b) and add it with no dialog, no warning, no error.
@@ -1255,7 +1265,12 @@ abstract class SharingService {
   **Validated on device 2026-08-01 (Task 11 Step 4b): WhatsApp accepts the promoted pack.** Build
   this step as written — the fallback is not needed.
 
-- [ ] **Step 3c: The app must show its OWN "Add to WhatsApp?" confirmation** *(added 2026-08-01)*
+  **Built and confirmed on real content 2026-08-08:** promotion works "near flawless" through a real
+  pack on device. Note the rule shipped slightly broader than written here — a pack is animated if
+  **any** sticker in it is animated, so an *animated* sticker joining a *static* pack flips the pack
+  and promotes every existing member. Both directions are silent. See `CLAUDE.md`.
+
+- [x] **Step 3c: The app must show its OWN "Add to WhatsApp?" confirmation** *(added 2026-08-01)*
 
   Task 11's device probes exported four packs in ~11 s with **no per-pack confirmation dialog from
   WhatsApp**. The spec assumed WhatsApp always asks ("a pack cannot be added silently — user
@@ -1265,8 +1280,15 @@ abstract class SharingService {
   in WhatsApp they did not explicitly ask for — that is both a trust problem and, at scale, the kind
   of behaviour that gets an app reported. Show the pack name and sticker count, and require an
   explicit tap.
-- [ ] **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit & push** on `feat/maker-ui`.
+
+  **Built as `confirmAndExportPack`.** Shows the pack name and sticker count, exports nothing until
+  answered, and handles all four outcomes distinctly — see `CLAUDE.md` "Export UI".
+
+- [x] **Step 3d: Device walk-through** *(added 2026-08-08)* — the whole flow run on the A059P against
+  WhatsApp v2.26.27.85. Everything worked. Findings, and the keyboard bug it caught, in `CLAUDE.md`
+  "Device walk-through of the Maker".
+- [x] **Step 4: Run → PASS.** 231 tests, `dart format` and `flutter analyze` clean, debug APK builds.
+- [x] **Step 5: Commit & push** on `feat/maker-ui`.
 
 ---
 

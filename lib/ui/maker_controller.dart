@@ -219,6 +219,31 @@ class MakerController extends ChangeNotifier {
     await _pendingTagging;
   }
 
+  /// Names the sticker that was just saved.
+  ///
+  /// The name is the **highest-signal searchable text there is** — better than
+  /// auto-tags for both keyword and semantic search, since device testing
+  /// (2026-08-08) showed ML Kit labels the scene rather than the subject
+  /// ("sports, team, event" for a footballer). It is also the only per-sticker
+  /// text WhatsApp can use, via `accessibility_text`.
+  ///
+  /// Writes through `updateMetadata`, which touches **only** the name — auto-tags
+  /// are a separate field, so naming never disturbs them and the user never has
+  /// to clear tags to add their own words.
+  Future<void> renameLastSaved(String name) async {
+    final record = _lastSaved;
+    if (record == null) return;
+
+    final trimmed = name.trim();
+    await _deps.store.updateMetadata(
+      record.id,
+      // Empty clears it rather than storing "", so `accessibility_text` falls
+      // back to the auto-tags instead of exporting a blank description.
+      manualName: trimmed.isEmpty ? null : trimmed,
+    );
+    await _refreshLastSaved();
+  }
+
   /// Kicks off tagging and keeps the handle.
   ///
   /// Deliberately NOT awaited by [save]: tagging must never delay the save, and

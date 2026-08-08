@@ -220,6 +220,20 @@ survive a round trip, so a record saved and re-read compares **unequal** to the 
 (`createdAt` only drives Library sort order), so this is recorded rather than migrated — but Task 14
 should not assume `saved == fetched`.
 
+**The sticker name is offered in the Maker, and it is the highest-value text in the app.** Added
+2026-08-08 once real-content testing showed auto-tags are generic. It feeds three things at once:
+keyword search, the embedding, and WhatsApp's `accessibility_text` (the only per-sticker text field
+that exists). Optional, empty by default, saved on submit **and** on focus loss — a name typed and
+then abandoned by tapping elsewhere is still a name the user meant.
+- **Empty stores `null`, not `""`**, so `accessibility_text` falls back to auto-tags instead of
+  exporting a blank description.
+- **Name and auto-tags are separate fields and must stay separate.** Naming never disturbs tags, so
+  the user never has to clear machine output to add their own words. Task 14's edit sheet must keep
+  this — a single merged tag list would force exactly that chore.
+- The `TextEditingController` lives on the *screen*, keyed by the saved sticker's id: one sticker
+  causes several rebuilds (tagging alone triggers two), so a controller rebuilt inline would wipe
+  half-typed input, and one never reset would leak the previous sticker's name into the next.
+
 **Tray icons are generated, not asked for.** Every pack needs a 96×96 ≤50 KB icon and `PackRecord`
 requires the path; the plan never says where it comes from. Use `TrayIconEncoder` on the pack's first
 sticker automatically — one less decision to put in front of the user.
@@ -250,6 +264,34 @@ the UI flow anyway (*Add to pack → New pack*).
 the words "animat", "convert", "static" and "frame" appear nowhere in the sheet. Packs below the
 3-sticker floor *do* say how many more they need — that is honest and actionable, and unrelated to
 promotion.
+
+## Device walk-through of the Maker (Task 13 · #44 — 2026-08-08)
+
+Real end-to-end run on the A059P against `com.whatsapp` v2.26.27.85. **Everything worked.** Findings
+worth keeping:
+
+- **The ≥2-frame promotion works in practice, not just in principle** — "near flawless" across a real
+  pack. Combined with the 2026-08-01 export result, the silent-promotion strategy is now verified both
+  at the validator and at the user-experience level.
+- **A pack update DID refresh WhatsApp** on this build, on one pack. This does **not** overturn the
+  `image_data_version` caveat — the defect is that it *sometimes* fails (issue #612), so one success is
+  consistent with it. Keep telling the user to open the sticker manager on a re-add.
+- **There is no per-sticker display name in WhatsApp's third-party API.** Every sticker in the tray
+  shows the *pack's* name; the only per-sticker text field is `accessibility_text`. That was being set
+  from `manualName`, which is `null` for everything the Maker makes, so it exported **empty** and a
+  screen-reader user got nothing. Now falls back to auto-tags — the one job those generic scene labels
+  are genuinely good at. `emojis` is still sent empty; it is WhatsApp's own in-tray search hook and is
+  the remaining unexploited per-sticker field.
+- **Video encoding takes 15–20 s on real clips** (earlier measurement said ~24 s; same order). Noted,
+  accepted for v1, revisit post-v1. The stale-preview model is what makes it tolerable.
+- **BUG, found here and fixed: the Add-to-pack sheet was hidden behind the keyboard.** A bottom sheet
+  is anchored to the bottom of the screen and Flutter does **not** lift it for the keyboard the way it
+  lifts a dialog, so with the name field autofocused the keyboard covered the whole sheet and the user
+  typed blind into something invisible. Fix is `Padding(bottom: MediaQuery.viewInsetsOf(context)
+  .bottom)` **outside** the `SafeArea`. This was a direct cost of choosing an inline field over an
+  `AlertDialog`, which gets keyboard handling for free — the tradeoff was still right (see #42), but
+  the cost is real and any future in-sheet text input needs the same treatment. Regression test exists
+  and was **verified to fail without the fix** (field sat 324 logical px behind the keyboard).
 
 ## Export UI (Task 13 · #43 — decided 2026-08-08)
 
@@ -483,6 +525,30 @@ schema migration, and repairing a drifted index.
   `SearchService`, **not** the store — unlike the FTS index — because producing one needs the native
   model, and putting that in `LibraryStore` would make the store untestable without a device.
 
+**⚠️ KNOWN RANKING GAP — a user's own name weighs the SAME as a machine label.**
+`StickerRecord.searchBlob()` flattens `autoTags + manualName + manualTags + notes` into one string, and
+the FTS5 table has a single `blob` column, so bm25 sees one undifferentiated bag of words. Search
+"sports" and a sticker the user deliberately *named* "sports party" ranks no higher than five stickers
+ML Kit generically labelled "sports" — the signal they chose is drowned by the signal a model guessed.
+This matters more now that tag genericness is confirmed (see Tagger below).
+
+**Fix, sized 2026-08-08 — ~25 lines of production code, deferred to Task 14** so the ranking can be
+*seen* on a real search screen rather than tuned blind:
+- `fts5(id UNINDEXED, mine, auto)` instead of `(id UNINDEXED, blob)`; `schemaVersion` 3 → **4**.
+- Split `searchBlob()` into `mineBlob()` (name, manual tags, notes) + `autoBlob()` (auto-tags). Keep
+  `searchBlob()` for **embeddings** — semantic search should still see everything.
+- `_reindex` inserts three columns; query becomes `bm25(table, 0.0, 10.0, 1.0)`.
+- **The risky part is repopulation, not the weights.** Dropping and recreating the FTS table leaves it
+  empty, and `_reindex` only fires on the next save — so every existing sticker silently disappears
+  from search until it happens to be edited. `SearchService.reindex()` exists for this but the
+  migration cannot call it (wrong layer), so `AppDatabase` must record that an upgrade happened and
+  `bootstrap()` must call `reindex()` on seeing it. Test that; the failure is silent and total.
+  Do **not** repopulate in raw SQL — that duplicates `searchBlob()` in a second language.
+- **Verify, do not assume, that `UNINDEXED` columns occupy a bm25 weight slot** (hence the leading
+  `0.0`). Getting it wrong shifts weights to the wrong column and looks like working search with
+  subtly wrong ranking — the same shape as the threshold bug below. Pin it with a test asserting a
+  real ordering, not a signature.
+
 **⚠️ USE similarities are COMPRESSED — never threshold on the absolute value.** Measured on device:
 `cosine(dog, puppy) = 0.980` but `cosine(dog, car) = **0.940**`. A 0.04 margin between related and
 unrelated, so **no absolute floor separates them**: a threshold low enough to admit a true match
@@ -521,7 +587,28 @@ confirm with a real release build before quoting a figure.*
 - *Sticker text* — OCR read `LOL` off a white background cleanly, so text recognition earns its
   ~29 MB half of the footprint. Do not drop it.
 
-**Evidence strength: these were SYNTHETIC fixtures, one label each.** What is established is the
+**ANSWERED ON REAL CONTENT 2026-08-08 — tags are SCENE-LEVEL and generic, and that is inherent.**
+A video of a footballer returned `sports, team, event, stadium, competition`. Nothing is *wrong*, but
+ML Kit labels the scene rather than the subject, so the tail matches any sports photo at all. Two
+consequences, both acted on:
+- **`maxSubjects` lowered 5 → 3.** Reduces noise, but does **not** make tags specific — the
+  genericness is in ML Kit's label set, not in our threshold. Do not expect more tuning to fix it.
+- **A user-typed name is worth far more than any auto-tag**, which is why the Maker now offers a name
+  field, and why the ranking gap above matters.
+
+**Latent bug found and fixed alongside: the cap did not sort.** `where(confidence).map(label)
+.take(maxSubjects)` kept whatever order ML Kit returned. ML Kit is *believed* to sort
+confidence-descending but does not document it, so `take(3)` could keep three arbitrary labels — and
+`suggestedName` could be an arbitrary label too. Now sorted explicitly. `MlKitTagger` is also
+**testable off-device** now (`test/tagger/mlkit_tagger_test.dart`): `ImageLabeler` and
+`TextRecognizer` are plain injectable classes, so threshold/ranking/cap rules need no phone.
+
+**`suggestedName` is computed and deliberately NOT consumed.** The Maker's name field is left empty
+rather than pre-filled with it: a generic guess like "sports" is one the user must delete first, which
+is the same tedium as having to clear auto-tags before adding their own words. An empty field with a
+hint beats a wrong default.
+
+**Evidence strength of the earlier synthetic run: SYNTHETIC fixtures, one label each.** What is established is the
 *floor* — neither illustrated art nor text comes back empty. Whether tags are rich enough to carry
 search on a real library is still open; re-check with real stickers during Task 14.
 

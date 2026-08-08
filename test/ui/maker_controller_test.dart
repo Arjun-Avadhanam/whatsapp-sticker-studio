@@ -330,6 +330,66 @@ void main() {
       expect(c.lastSaved!.taggingStatus, TaggingStatus.done);
     });
 
+    test('naming the sticker persists it and leaves tags alone', () async {
+      // A user-typed name is the highest-signal searchable text there is, and
+      // the only per-sticker text WhatsApp can use. It must not disturb the
+      // auto-tags — they are a separate field precisely so the user never has
+      // to clear tags to add their own words.
+      final deps = await testDependencies();
+      addTearDown(deps.dispose);
+      final c = MakerController(deps: deps, staticEncoder: stills);
+
+      await c.pickFrom(FakeSource(fakeImage()));
+      final saved = await c.save();
+      await c.pendingTagging;
+      expect(c.lastSaved!.autoTags, contains('dog'));
+
+      await c.renameLastSaved('  Arjun high five  ');
+
+      final stored = (await deps.store.getSticker(saved!.id))!;
+      expect(stored.manualName, 'Arjun high five', reason: 'trimmed');
+      expect(stored.autoTags, contains('dog'), reason: 'tags untouched');
+      expect(c.lastSaved!.manualName, 'Arjun high five');
+    });
+
+    test('a name makes the sticker findable by it', () async {
+      // The whole point: names reach the FTS index through saveSticker.
+      final deps = await testDependencies();
+      addTearDown(deps.dispose);
+      final c = MakerController(deps: deps, staticEncoder: stills);
+
+      await c.pickFrom(FakeSource(fakeImage()));
+      await c.save();
+      await c.pendingTagging;
+      await c.renameLastSaved('penguin');
+
+      final hits = await deps.search.query('penguin');
+      expect(hits.map((h) => h.record.id), contains(c.lastSaved!.id));
+    });
+
+    test('clearing the name stores null, not an empty string', () async {
+      // Empty must fall back to auto-tags for accessibility_text rather than
+      // exporting a blank description.
+      final deps = await testDependencies();
+      addTearDown(deps.dispose);
+      final c = MakerController(deps: deps, staticEncoder: stills);
+
+      await c.pickFrom(FakeSource(fakeImage()));
+      await c.save();
+      await c.pendingTagging;
+
+      await c.renameLastSaved('temp');
+      await c.renameLastSaved('   ');
+
+      expect(c.lastSaved!.manualName, isNull);
+    });
+
+    test('renaming with nothing saved does nothing', () async {
+      final c = await controller();
+      await c.renameLastSaved('orphan');
+      expect(c.lastSaved, isNull);
+    });
+
     test('retrying before anything is saved does nothing', () async {
       final c = await controller();
       await c.retryTagging();

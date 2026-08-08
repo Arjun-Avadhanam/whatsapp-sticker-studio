@@ -49,11 +49,21 @@ class _MakerScreenState extends State<MakerScreen> {
     _controller.addListener(_onChanged);
   }
 
-  void _onChanged() => setState(() {});
+  void _onChanged() {
+    // A newly saved sticker gets an empty field; the same sticker rebuilding
+    // keeps whatever the user has typed so far.
+    final saved = _controller.lastSaved;
+    if (saved != null && saved.id != _namedStickerId) {
+      _namedStickerId = saved.id;
+      _name.text = saved.manualName ?? '';
+    }
+    setState(() {});
+  }
 
   @override
   void dispose() {
     _controller.removeListener(_onChanged);
+    _name.dispose();
     if (widget.controller == null) _controller.dispose();
     super.dispose();
   }
@@ -77,6 +87,16 @@ class _MakerScreenState extends State<MakerScreen> {
   /// current flow, not about making a sticker, and the Library (Task 14) will
   /// reach packs its own way.
   PackRecord? _pack;
+
+  final _name = TextEditingController();
+
+  /// Which sticker [_name] currently holds a name for.
+  ///
+  /// Tracked so the field is cleared when a *different* sticker is saved, but
+  /// left alone across the many rebuilds one sticker causes — tagging alone
+  /// triggers two. Without this, either the next sticker inherits the previous
+  /// name or the user's typing is wiped mid-word.
+  String? _namedStickerId;
 
   Future<void> _export() async {
     final pack = _pack;
@@ -158,6 +178,7 @@ class _MakerScreenState extends State<MakerScreen> {
             _TaggingStatusCard(
               controller: _controller,
               onAddToPack: _addToPack,
+              name: _name,
             ),
           ],
           if (_pack != null) ...[
@@ -376,10 +397,15 @@ class _TaggingStatusCard extends StatelessWidget {
   const _TaggingStatusCard({
     required this.controller,
     required this.onAddToPack,
+    required this.name,
   });
 
   final MakerController controller;
   final VoidCallback onAddToPack;
+
+  /// Owned by the screen, not rebuilt here — a controller recreated on every
+  /// rebuild would drop the user's half-typed name.
+  final TextEditingController name;
 
   @override
   Widget build(BuildContext context) {
@@ -435,6 +461,8 @@ class _TaggingStatusCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
+            _NameField(controller: controller, name: name),
+            const SizedBox(height: 8),
             detail,
             const SizedBox(height: 4),
             Align(
@@ -454,6 +482,42 @@ class _TaggingStatusCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// What the user calls this sticker.
+///
+/// Optional, and **deliberately not pre-filled** with the tagger's
+/// `suggestedName`. Device testing showed ML Kit's most confident label is
+/// scene-level and generic ("sports"), so pre-filling would hand the user a
+/// mediocre guess they have to delete first — the same tedium as having to clear
+/// auto-tags before adding their own. An empty field with a nudge is less work
+/// than a wrong default.
+class _NameField extends StatelessWidget {
+  const _NameField({required this.controller, required this.name});
+
+  final MakerController controller;
+  final TextEditingController name;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      key: const Key('sticker-name'),
+      controller: name,
+      textInputAction: TextInputAction.done,
+      decoration: const InputDecoration(
+        labelText: 'Name (optional)',
+        hintText: 'so you can find it later',
+        isDense: true,
+      ),
+      // Saved on submit AND on focus loss, because a name typed and then
+      // abandoned by tapping elsewhere is still a name the user meant.
+      onSubmitted: controller.renameLastSaved,
+      onTapOutside: (_) {
+        FocusScope.of(context).unfocus();
+        controller.renameLastSaved(name.text);
+      },
     );
   }
 }

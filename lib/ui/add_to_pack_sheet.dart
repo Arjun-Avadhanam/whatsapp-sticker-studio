@@ -104,66 +104,75 @@ class _AddToPackSheetState extends State<_AddToPackSheet> {
   Widget build(BuildContext context) {
     final packs = _packs;
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Add to pack',
-              style: Theme.of(context).textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            if (_error != null) _ErrorText(_error!),
-            if (_busy)
-              // Deliberately says nothing about what is happening underneath.
-              // Adding a static to an animated pack re-encodes it as a 2-frame
-              // animation, and naming that would hand the user the very
-              // constraint this design exists to dissolve.
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 12),
-                    Text('Adding…'),
-                  ],
-                ),
-              )
-            else if (packs == null)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_naming)
-              _NameField(
-                controller: _name,
-                onCreate: _createNew,
-                onCancel: () => setState(() => _naming = false),
-              )
-            else ...[
-              if (packs.isNotEmpty)
-                Flexible(
-                  child: ListView(
-                    key: const Key('pack-list'),
-                    shrinkWrap: true,
+    // The keyboard inset has to be applied by hand, OUTSIDE the SafeArea.
+    // A bottom sheet is anchored to the bottom of the screen and Flutter does
+    // not lift it for the keyboard the way it does a dialog — so with the name
+    // field autofocused, the keyboard covered the whole sheet and the user typed
+    // blind into something invisible. Found on device 2026-08-08; it is the cost
+    // of choosing an inline field over an AlertDialog, which gets this for free.
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Add to pack',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              if (_error != null) _ErrorText(_error!),
+              if (_busy)
+                // Deliberately says nothing about what is happening underneath.
+                // Adding a static to an animated pack re-encodes it as a 2-frame
+                // animation, and naming that would hand the user the very
+                // constraint this design exists to dissolve.
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Column(
                     children: [
-                      for (final pack in packs)
-                        _PackTile(pack: pack, onTap: () => _addTo(pack)),
+                      CircularProgressIndicator(),
+                      SizedBox(height: 12),
+                      Text('Adding…'),
                     ],
                   ),
+                )
+              else if (packs == null)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_naming)
+                _NameField(
+                  controller: _name,
+                  onCreate: _createNew,
+                  onCancel: () => setState(() => _naming = false),
+                )
+              else ...[
+                if (packs.isNotEmpty)
+                  Flexible(
+                    child: ListView(
+                      key: const Key('pack-list'),
+                      shrinkWrap: true,
+                      children: [
+                        for (final pack in packs)
+                          _PackTile(pack: pack, onTap: () => _addTo(pack)),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => setState(() => _naming = true),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New pack'),
                 ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => setState(() => _naming = true),
-                icon: const Icon(Icons.add),
-                label: const Text('New pack'),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

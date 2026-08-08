@@ -57,9 +57,34 @@ class DriftLibraryStore implements LibraryStore {
   // ---- Stickers ----------------------------------------------------------
 
   @override
-  Future<void> saveSticker(StickerRecord r) => _db.transaction(() async {
+  Future<void> saveSticker(StickerRecord r) => _db.transaction(() => _write(r));
+
+  Future<void> _write(StickerRecord r) async {
     await _db.into(_db.stickers).insertOnConflictUpdate(_toStickerRow(r));
     await _reindex(r);
+  }
+
+  /// Reads a sticker, applies [change], and writes it back — all inside ONE
+  /// transaction, so the read cannot go stale before the write lands.
+  ///
+  /// The read has to be in here. Tagging runs in the background after a save,
+  /// so a user edit overlaps it, and Dart yields at every `await`: with the read
+  /// outside, `updateMetadata` could read the record, be suspended while
+  /// `setAutoTags` read-modified-wrote it, then resume and save its pre-tagging
+  /// copy — silently dropping the tags AND reverting the status to `pending`,
+  /// which nothing would ever resolve because the tagging run had finished.
+  /// Reproduced deterministically before this existed
+  /// (`library_store_test.dart`, "concurrent edits").
+  ///
+  /// drift runs transactions exclusively, so the second caller's read is queued
+  /// until the first has committed and therefore sees the fresh record.
+  Future<void> _mutate(
+    String id,
+    StickerRecord Function(StickerRecord current) change,
+  ) => _db.transaction(() async {
+    final current = await getSticker(id);
+    if (current == null) return;
+    await _write(change(current));
   });
 
   /// Keeps the FTS5 search index in step with the row just written.
@@ -107,10 +132,7 @@ class DriftLibraryStore implements LibraryStore {
     Object? manualName = _unset,
     List<String>? manualTags,
     Object? notes = _unset,
-  }) async {
-    final current = await getSticker(id);
-    if (current == null) return;
-
+  }) => _mutate(id, (current) {
     // Each field is forwarded to copyWith only when the caller supplied it.
     // We cannot pass this library's _unset into copyWith — copyWith compares
     // against its *own* sentinel — so we branch instead of forwarding.
@@ -124,31 +146,25 @@ class DriftLibraryStore implements LibraryStore {
     if (!identical(notes, _unset)) {
       updated = updated.copyWith(notes: notes as String?);
     }
-    await saveSticker(updated);
-  }
+    return updated;
+  });
 
   @override
-  Future<void> setAutoTags(String id, List<String> tags) async {
-    final current = await getSticker(id);
-    if (current == null) return;
-    await saveSticker(
-      current.copyWith(autoTags: tags, taggingStatus: TaggingStatus.done),
-    );
-  }
+  Future<void> setAutoTags(String id, List<String> tags) => _mutate(
+    id,
+    (current) =>
+        current.copyWith(autoTags: tags, taggingStatus: TaggingStatus.done),
+  );
 
   @override
-  Future<void> setTaggingStatus(String id, TaggingStatus status) async {
-    final current = await getSticker(id);
-    if (current == null) return;
-    await saveSticker(current.copyWith(taggingStatus: status));
-  }
+  Future<void> setTaggingStatus(String id, TaggingStatus status) =>
+      _mutate(id, (current) => current.copyWith(taggingStatus: status));
 
   @override
-  Future<void> incrementUsage(String id) async {
-    final current = await getSticker(id);
-    if (current == null) return;
-    await saveSticker(current.copyWith(usageCount: current.usageCount + 1));
-  }
+  Future<void> incrementUsage(String id) => _mutate(
+    id,
+    (current) => current.copyWith(usageCount: current.usageCount + 1),
+  );
 
   // ---- Packs -------------------------------------------------------------
 

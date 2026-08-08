@@ -23,7 +23,7 @@ class _Attempt {
 /// its filter chain avoids shuttling raw frames across the platform boundary.
 /// ffmpeg is required here regardless — Android has no built-in animated-WebP
 /// encoder at any API level.
-class AnimatedEncoder implements Encoder {
+class AnimatedEncoder implements Encoder, StaticPromoter {
   const AnimatedEncoder();
 
   static const int _dim = WhatsAppSpec.dimension;
@@ -66,10 +66,19 @@ class AnimatedEncoder implements Encoder {
           ? maxSeconds
           : math.min(params.trim!.inMilliseconds / 1000, maxSeconds);
 
+      // `-ss` goes AFTER `-i`, which is the frame-accurate form: ffmpeg decodes
+      // from the beginning and starts emitting at the requested instant. The
+      // faster pre-input form seeks to the nearest keyframe and can land a few
+      // hundred milliseconds off — fine for a long video, but these clips are
+      // 1–3 s, so being off by a fraction of a second can miss the moment the
+      // user was aiming at entirely. Accuracy is worth the extra decode.
+      final startSeconds = params.start.inMilliseconds / 1000;
+      final seek = startSeconds > 0 ? '-ss $startSeconds ' : '';
+
       return await _runLadder(
         work: work,
         inputArgs: '-i ${source.path}',
-        durationArgs: '-t $seconds',
+        durationArgs: '$seek-t $seconds',
         fitMode: params.fitMode,
         what: 'this clip',
       );
@@ -88,6 +97,7 @@ class AnimatedEncoder implements Encoder {
   ///
   /// Promotion moves the sticker from the 100 KB static budget to the 500 KB
   /// animated one, so quality goes *up*, never down.
+  @override
   Future<EncodedSticker> promoteStatic(Uint8List stillBytes) async {
     final work = await Directory.systemTemp.createTemp('promote');
     try {

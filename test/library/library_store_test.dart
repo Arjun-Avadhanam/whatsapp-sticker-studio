@@ -131,6 +131,50 @@ void main() {
     });
   });
 
+  group('concurrent edits', () {
+    // Tagging runs in the background after a save, so anything the user does to
+    // the sticker meanwhile overlaps it. Every mutator is read-modify-write, and
+    // Dart yields at each await — so without the read being inside the write's
+    // transaction, whichever finishes second writes back a record it read
+    // BEFORE the first one landed, silently reverting it.
+    test(
+      'a manual edit during tagging does not clobber the auto-tags',
+      () async {
+        await store.saveSticker(
+          sampleSticker(taggingStatus: TaggingStatus.pending),
+        );
+
+        // Started together, not awaited in turn: this is the real shape — the
+        // user types a tag while the tagger is still working.
+        await Future.wait([
+          store.updateMetadata('1', manualTags: ['arjun']),
+          store.setAutoTags('1', ['dog']),
+        ]);
+
+        final got = (await store.getSticker('1'))!;
+        expect(got.manualTags, ['arjun'], reason: 'the edit must survive');
+        expect(got.autoTags, ['dog'], reason: 'the tags must survive');
+        // The nastier half: a reverted status leaves the sticker stuck on
+        // "pending" forever, because the tagging that would resolve it has
+        // already finished and nothing will run again.
+        expect(got.taggingStatus, TaggingStatus.done);
+      },
+    );
+
+    test('a usage bump during a rename loses neither', () async {
+      await store.saveSticker(sampleSticker(usageCount: 3));
+
+      await Future.wait([
+        store.incrementUsage('1'),
+        store.updateMetadata('1', manualName: 'Renamed'),
+      ]);
+
+      final got = (await store.getSticker('1'))!;
+      expect(got.usageCount, 4);
+      expect(got.manualName, 'Renamed');
+    });
+  });
+
   group('incrementUsage', () {
     test('bumps the count by one each call', () async {
       await store.saveSticker(sampleSticker(usageCount: 0));

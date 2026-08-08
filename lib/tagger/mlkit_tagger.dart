@@ -18,7 +18,7 @@ class MlKitTagger implements TaggingService {
     ImageLabeler? labeler,
     TextRecognizer? recognizer,
     this.minConfidence = 0.6,
-    this.maxSubjects = 5,
+    this.maxSubjects = 3,
   }) : _labeler =
            labeler ??
            ImageLabeler(options: ImageLabelerOptions(confidenceThreshold: 0.5)),
@@ -37,6 +37,13 @@ class MlKitTagger implements TaggingService {
   final double minConfidence;
 
   /// Caps how many subjects reach the index, for the same reason.
+  ///
+  /// **Three, lowered from five after real-content testing 2026-08-08.** ML Kit
+  /// labels the *scene*, not the subject: a video of a footballer came back
+  /// `sports, team, event, stadium, competition` — none wrong, but the tail is
+  /// near-noise that would match any sports photo at all. Note this cap reduces
+  /// noise without making tags specific; the genericness is inherent to ML Kit's
+  /// label set, not to our threshold.
   final int maxSubjects;
 
   @override
@@ -58,11 +65,16 @@ class MlKitTagger implements TaggingService {
       final labels = await _labeler.processImage(input);
       final recognised = await _recognizer.processImage(input);
 
-      final subjects = labels
-          .where((l) => l.confidence >= minConfidence)
-          .map((l) => l.label)
-          .take(maxSubjects)
-          .toList();
+      // Sorted explicitly before the cap. ML Kit is *believed* to return labels
+      // confidence-descending but does not document it, and relying on that
+      // would make `take(maxSubjects)` keep three arbitrary labels rather than
+      // the three best — invisible in tests, and exactly the kind of quiet
+      // quality loss the cap exists to prevent. Also makes `suggestedName`
+      // genuinely the most confident label.
+      final ranked = labels.where((l) => l.confidence >= minConfidence).toList()
+        ..sort((a, b) => b.confidence.compareTo(a.confidence));
+
+      final subjects = ranked.map((l) => l.label).take(maxSubjects).toList();
 
       final text = recognised.text.trim();
 

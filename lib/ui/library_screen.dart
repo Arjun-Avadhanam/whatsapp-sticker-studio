@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../app/dependencies.dart';
 import '../models/sticker_record.dart';
 import '../search/search_service.dart';
+import 'add_to_pack_sheet.dart';
 import 'sticker_detail_sheet.dart';
 
 /// How long typing has to stop before a query is issued.
@@ -74,12 +75,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// library: a rename can move a sticker out of the results it was found in, and
   /// silently dropping the user's filter would lose their place.
   Future<void> _openDetail(StickerRecord sticker) async {
-    final changed = await showStickerDetailSheet(
+    final result = await showStickerDetailSheet(
       context: context,
       dependencies: widget.dependencies,
       sticker: sticker,
     );
-    if (changed && mounted) await _run(_field.text);
+    if (!mounted) return;
+
+    // Opened here, after the detail sheet has closed, rather than from inside it.
+    // The picker is itself a bottom sheet, and stacking one over another is poor
+    // on a phone. The sticker is re-read because the detail sheet may have just
+    // renamed it, and the picker shows that name.
+    if (result.wantsAddToPack) {
+      final current =
+          await widget.dependencies.store.getSticker(sticker.id) ?? sticker;
+      if (!mounted) return;
+      await showAddToPackSheet(
+        context: context,
+        dependencies: widget.dependencies,
+        sticker: current,
+      );
+      if (!mounted) return;
+    }
+
+    if (result.changed || result.wantsAddToPack) await _run(_field.text);
   }
 
   Future<void> _run(String q) async {

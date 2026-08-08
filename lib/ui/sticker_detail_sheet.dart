@@ -4,27 +4,47 @@ import 'package:flutter/material.dart';
 
 import '../app/dependencies.dart';
 import '../models/sticker_record.dart';
+import '../sharing/sharing_service.dart';
+
+/// What the detail sheet did.
+///
+/// Two facts, not one: an edit needs a grid refresh, while an add-to-pack request
+/// needs the *caller* to act — the pack picker is itself a bottom sheet, and
+/// stacking one over another is poor on a phone. Collapsing these into a single
+/// flag would lose whichever the other implied.
+class StickerDetailResult {
+  const StickerDetailResult({
+    this.changed = false,
+    this.wantsAddToPack = false,
+  });
+
+  /// Metadata was written, so anything displaying this sticker is stale.
+  final bool changed;
+
+  /// The user asked to file this sticker into a pack. The sheet is already
+  /// closed; the caller opens the picker.
+  final bool wantsAddToPack;
+}
 
 /// Shows one sticker and lets the user describe it.
-///
-/// Returns true if anything was saved, so the caller knows to refresh.
 ///
 /// This is where a sticker earns its searchability. Auto-tags are generic —
 /// device testing 2026-08-08 returned `sports, team, event` for a footballer —
 /// so the words typed here are the strongest retrieval signal the library has,
 /// and they are weighted an order of magnitude above the machine's guess.
-Future<bool> showStickerDetailSheet({
+Future<StickerDetailResult> showStickerDetailSheet({
   required BuildContext context,
   required AppDependencies dependencies,
   required StickerRecord sticker,
 }) async {
-  final saved = await showModalBottomSheet<bool>(
+  final result = await showModalBottomSheet<StickerDetailResult>(
     context: context,
     isScrollControlled: true,
     builder: (_) =>
         _StickerDetailSheet(dependencies: dependencies, sticker: sticker),
   );
-  return saved ?? false;
+  // Dismissed by tapping outside or swiping down — nothing happened.
+  return result ?? const StickerDetailResult();
 }
 
 class _StickerDetailSheet extends StatefulWidget {
@@ -75,7 +95,7 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
     });
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool thenAddToPack = false}) async {
     setState(() => _busy = true);
 
     final name = _name.text.trim();
@@ -93,7 +113,30 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
       notes: notes.isEmpty ? null : notes,
     );
 
-    if (mounted) Navigator.of(context).pop(true);
+    if (mounted) {
+      Navigator.of(
+        context,
+      ).pop(StickerDetailResult(changed: true, wantsAddToPack: thenAddToPack));
+    }
+  }
+
+  /// Shares the sticker **as a file**, through the OS share sheet.
+  ///
+  /// Stays inside this sheet because the share sheet is an OS surface, not
+  /// another Flutter modal — nothing stacks. Add-to-pack cannot do the same.
+  Future<void> _exportFile() async {
+    final outcome = await widget.dependencies.sharing.shareSticker(
+      widget.sticker,
+    );
+    if (!mounted) return;
+
+    // Only worth saying something when it did not go out. A successful share
+    // already showed the user the OS sheet and their chosen app.
+    if (outcome == ShareOutcome.failed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not export this sticker.')),
+      );
+    }
   }
 
   @override
@@ -145,19 +188,27 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
                     isDense: true,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
+                _Actions(
+                  busy: _busy,
+                  onAddToPack: () => _save(thenAddToPack: true),
+                  onExportFile: _exportFile,
+                ),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
                       onPressed: _busy
                           ? null
-                          : () => Navigator.of(context).pop(false),
+                          : () => Navigator.of(
+                              context,
+                            ).pop(const StickerDetailResult()),
                       child: const Text('Cancel'),
                     ),
                     const SizedBox(width: 8),
                     FilledButton(
-                      onPressed: _busy ? null : _save,
+                      onPressed: _busy ? null : () => _save(),
                       child: const Text('Save'),
                     ),
                   ],
@@ -167,6 +218,49 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The two things you can do with a sticker from here.
+///
+/// **The wording is load-bearing.** There are two routes out of this app and they
+/// are not interchangeable:
+/// - *Add to pack* → the ContentProvider + `ENABLE_STICKER_PACK` path, which puts
+///   real stickers in WhatsApp's tray but needs a whole pack.
+/// - *Export file* → the OS share sheet, which moves a file. Device-verified
+///   2026-08-06 that WhatsApp renders that `.webp` as an **ordinary image** in a
+///   chat, not a sticker.
+///
+/// So this must never say "send sticker". That would repeat exactly the
+/// overpromise removed from pack sharing.
+class _Actions extends StatelessWidget {
+  const _Actions({
+    required this.busy,
+    required this.onAddToPack,
+    required this.onExportFile,
+  });
+
+  final bool busy;
+  final VoidCallback onAddToPack;
+  final VoidCallback onExportFile;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      children: [
+        OutlinedButton.icon(
+          onPressed: busy ? null : onAddToPack,
+          icon: const Icon(Icons.library_add_outlined, size: 18),
+          label: const Text('Add to pack'),
+        ),
+        OutlinedButton.icon(
+          onPressed: busy ? null : onExportFile,
+          icon: const Icon(Icons.ios_share, size: 18),
+          label: const Text('Export file'),
+        ),
+      ],
     );
   }
 }

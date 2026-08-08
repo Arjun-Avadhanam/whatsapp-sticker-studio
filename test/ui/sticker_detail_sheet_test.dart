@@ -11,7 +11,8 @@ import '../app/test_dependencies.dart';
 
 void main() {
   late AppDependencies deps;
-  bool? changed;
+  late FakeShareBackend shareBackend;
+  StickerDetailResult? result;
 
   /// Real work here is drift only, which resolves through microtasks, so plain
   /// pumping suffices. Never `pumpAndSettle` while a spinner is on screen.
@@ -50,9 +51,9 @@ void main() {
     return record;
   }
 
-  /// Opens the sheet on a host screen; [changed] receives what it returns.
+  /// Opens the sheet on a host screen; [result] receives what it returns.
   Future<void> open(WidgetTester tester, StickerRecord sticker) async {
-    changed = null;
+    result = null;
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -60,7 +61,7 @@ void main() {
             body: Center(
               child: ElevatedButton(
                 onPressed: () async {
-                  changed = await showStickerDetailSheet(
+                  result = await showStickerDetailSheet(
                     context: context,
                     dependencies: deps,
                     sticker: sticker,
@@ -84,7 +85,8 @@ void main() {
   }
 
   setUp(() async {
-    deps = await testDependencies();
+    shareBackend = FakeShareBackend();
+    deps = await testDependencies(shareBackend: shareBackend);
   });
   tearDown(() => deps.dispose());
 
@@ -115,7 +117,7 @@ void main() {
     await tapSave(tester);
 
     expect((await deps.store.getSticker(sticker.id))!.manualName, 'penguin');
-    expect(changed, isTrue, reason: 'the grid needs to know to refresh');
+    expect(result!.changed, isTrue, reason: 'the grid must know to refresh');
   });
 
   testWidgets('a renamed sticker is findable by its new name', (tester) async {
@@ -192,7 +194,7 @@ void main() {
     final stored = (await deps.store.getSticker(sticker.id))!;
     expect(stored.manualName, 'old');
     expect(stored.notes, 'keep me');
-    expect(changed, isFalse);
+    expect(result!.changed, isFalse);
   });
 
   testWidgets('clearing the name stores null, not an empty string', (
@@ -207,6 +209,65 @@ void main() {
     await tapSave(tester);
 
     expect((await deps.store.getSticker(sticker.id))!.manualName, isNull);
+  });
+
+  group('actions', () {
+    testWidgets('Export file shares it and counts the send', (tester) async {
+      // usageCount is a ranking signal only — WhatsApp exposes no usage data —
+      // so an actual send is exactly what should move it.
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await tester.tap(find.text('Export file'));
+      await settle(tester);
+
+      expect(shareBackend.shared, [sticker.filePath]);
+      expect((await deps.store.getSticker(sticker.id))!.usageCount, 1);
+    });
+
+    testWidgets('the copy never implies a sticker reaches WhatsApp', (
+      tester,
+    ) async {
+      // Device-verified 2026-08-06: a shared WebP arrives in WhatsApp as an
+      // ORDINARY IMAGE. The sticker tray is reachable only through the
+      // ContentProvider + intent path, so "send sticker" here would repeat
+      // exactly the overpromise removed from pack sharing.
+      await open(tester, await saveSticker());
+
+      expect(find.text('Export file'), findsOneWidget);
+      for (final wrong in ['Send sticker', 'Send as sticker']) {
+        expect(find.text(wrong), findsNothing);
+      }
+    });
+
+    testWidgets('Add to pack closes the sheet and reports the intent', (
+      tester,
+    ) async {
+      // Returned rather than performed here: the pack picker is itself a bottom
+      // sheet, and stacking one on another is poor on a phone. The Library opens
+      // it once this sheet is gone.
+      await open(tester, await saveSticker());
+
+      await tester.tap(find.text('Add to pack'));
+      await settle(tester);
+
+      expect(result!.wantsAddToPack, isTrue);
+      expect(find.byKey(const Key('detail-name')), findsNothing);
+    });
+
+    testWidgets('Add to pack saves pending edits first', (tester) async {
+      // Losing a half-typed name because the user reached for another action
+      // would be silent data loss.
+      final sticker = await saveSticker(manualName: 'old');
+      await open(tester, sticker);
+
+      await tester.enterText(find.byKey(const Key('detail-name')), 'penguin');
+      await tester.tap(find.text('Add to pack'));
+      await settle(tester);
+
+      expect((await deps.store.getSticker(sticker.id))!.manualName, 'penguin');
+      expect(result!.changed, isTrue);
+    });
   });
 
   testWidgets('the fields stay visible above the keyboard', (tester) async {

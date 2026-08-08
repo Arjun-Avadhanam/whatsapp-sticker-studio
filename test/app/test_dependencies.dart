@@ -150,6 +150,7 @@ Future<AppDependencies> testDependencies({
   Directory? stickerDir,
   TaggingService? tagger,
   FakeExporter? exporter,
+  FakeShareBackend? shareBackend,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   final store = DriftLibraryStore(db);
@@ -184,7 +185,10 @@ Future<AppDependencies> testDependencies({
       promoter: FakePromoter(),
       directory: dir,
     ),
-    sharing: SharingService(FakeShareBackend(), store),
+    // Passed in when a test needs to see what was shared — the real service
+    // keeps its backend private, and widening that for a test would be the wrong
+    // trade.
+    sharing: SharingService(shareBackend ?? FakeShareBackend(), store),
     stickerDirectory: dir,
   );
 }

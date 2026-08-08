@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../app/dependencies.dart';
+import 'library_screen.dart';
 import 'maker_screen.dart';
 
 /// Two tabs: make a sticker, and browse what you have made.
 ///
-/// A shell only — the Maker (Task 13) and Library (Task 14) fill the tabs. It
-/// exists now because neither screen can be built or widget-tested without
-/// somewhere to live.
+/// The Scaffold here is load-bearing beyond layout: it supplies the Material
+/// ancestor the Library's InkWell tiles need.
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, required this.dependencies});
 
@@ -30,26 +30,9 @@ class HomeScreen extends StatelessWidget {
         body: TabBarView(
           children: [
             MakerScreen(dependencies: dependencies),
-            const _Placeholder(label: 'Library', task: 'Task 14'),
+            LibraryScreen(dependencies: dependencies),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _Placeholder extends StatelessWidget {
-  const _Placeholder({required this.label, required this.task});
-
-  final String label;
-  final String task;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        '$label — $task',
-        style: Theme.of(context).textTheme.bodyMedium,
       ),
     );
   }

@@ -126,7 +126,8 @@ class _MakerScreenState extends State<MakerScreen> {
 
     setState(() => _pack = pack);
 
-    final short = WhatsAppSpec.minStickersPerPack - pack.stickerIds.length;
+    final short =
+        WhatsAppSpec.enforcedMinStickersPerPack - pack.stickerIds.length;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -550,9 +551,7 @@ class _ExportCard extends StatelessWidget {
             Text(
               // Disabled-with-a-reason rather than offered-then-refused: the
               // 3-sticker floor is WhatsApp's and it will reject the pack.
-              ready
-                  ? '${pack.stickerIds.length} stickers · ready'
-                  : shortfallLabel(pack),
+              ready ? '${stickerCount(pack)} · ready' : shortfallLabel(pack),
               key: const Key('export-readiness'),
               style: Theme.of(context).textTheme.bodySmall,
             ),

@@ -38,9 +38,13 @@ class StickerValidator {
   ) async {
     final problems = <String>[];
 
-    if (stickers.length < WhatsAppSpec.minStickersPerPack) {
+    // Gated on the ENFORCED floor, not the documented one — see
+    // `WhatsAppSpec.enforcedMinStickersPerPack` for why they differ and what the
+    // accepted risk is.
+    if (stickers.length < WhatsAppSpec.enforcedMinStickersPerPack) {
       problems.add(
-        'A pack needs at least ${WhatsAppSpec.minStickersPerPack} stickers '
+        'A pack needs at least ${WhatsAppSpec.enforcedMinStickersPerPack} '
+        'sticker${WhatsAppSpec.enforcedMinStickersPerPack == 1 ? '' : 's'} '
         '(this one has ${stickers.length}).',
       );
     }

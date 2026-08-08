@@ -99,14 +99,14 @@ void main() {
     // All of them, not just the first: validation collects every problem so the
     // user fixes everything in one pass rather than one per retry.
     exporter.throws = const PackNotValidException([
-      'A pack needs at least 3 stickers (this one has 2).',
+      'A pack needs at least 1 sticker (this one has 0).',
       'Sticker "grin" is 400x400; it must be exactly 512x512.',
     ]);
 
     await openAndConfirm(tester, pack(), tapInstead: 'Add');
 
     expect(find.byKey(const Key('export-problems')), findsOneWidget);
-    expect(find.textContaining('at least 3 stickers'), findsOneWidget);
+    expect(find.textContaining('at least 1 sticker'), findsOneWidget);
     expect(find.textContaining('400x400'), findsOneWidget);
 
     // Only after the dialog is dismissed does the call return — it waits so the
@@ -167,15 +167,26 @@ void main() {
   });
 
   group('readiness', () {
-    test('a pack under the floor cannot be exported', () {
-      // WhatsApp rejects it, so the UI disables rather than offers-then-refuses.
-      expect(canExport(pack(stickers: 2)), isFalse);
-      expect(shortfallLabel(pack(stickers: 2)), contains('1 more sticker '));
-      expect(shortfallLabel(pack(stickers: 1)), contains('2 more stickers'));
+    test('a SINGLE sticker can be sent to WhatsApp', () async {
+      // The enforced floor is 1, deliberately below WhatsApp's documented 3.
+      // Device-verified 2026-08-01 that 1- and 2-sticker packs install and work
+      // on v2.26.27.85, and the common case is wanting one sticker in WhatsApp
+      // without inventing two more. See WhatsAppSpec.enforcedMinStickersPerPack
+      // for the accepted risk.
+      expect(canExport(pack(stickers: 1)), isTrue);
+      expect(canExport(pack(stickers: 3)), isTrue);
     });
 
-    test('a pack at the floor can', () {
-      expect(canExport(pack(stickers: 3)), isTrue);
+    test('an empty pack still cannot', () {
+      // Not reachable through the UI — createPack requires a first sticker — but
+      // the gate must not pass a pack with nothing in it.
+      expect(canExport(pack(stickers: 0)), isFalse);
+    });
+
+    test('shortfall copy stays correct if the floor is raised back', () {
+      // The floor is a single constant, so a revert must not need UI edits.
+      // Exercised directly rather than via canExport, which is 1 today.
+      expect(shortfallLabel(pack(stickers: 0)), contains('1 more sticker '));
     });
   });
 }

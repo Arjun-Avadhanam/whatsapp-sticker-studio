@@ -188,17 +188,23 @@ class _PackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final count = pack.stickerIds.length;
-    final short = WhatsAppSpec.minStickersPerPack - count;
+    // Enforced floor, not the documented one. With it at 1 this branch never
+    // fires — every pack is exportable — but it stays correct if the floor is
+    // raised back to 3.
+    final short = WhatsAppSpec.enforcedMinStickersPerPack - count;
 
     return ListTile(
       onTap: onTap,
       title: Text(pack.name),
       // A pack under the floor cannot be added to WhatsApp at all, so say how
       // far off it is here rather than letting the user find out at export.
+      // "1 sticker", not "1 stickers" — with the enforced floor at 1, a
+      // one-sticker pack is the common case rather than an edge one, so this
+      // string is on screen constantly.
       subtitle: Text(
         short > 0
-            ? '$count stickers · $short more before you can add it to WhatsApp'
-            : '$count stickers',
+            ? '${_count(count)} · $short more before you can add it to WhatsApp'
+            : _count(count),
       ),
     );
   }
@@ -210,6 +216,9 @@ class _PackTile extends StatelessWidget {
 /// being awkward on a phone, a second route makes creation impossible to drive:
 /// popping a dialog needs frames pumped, while the tray-icon write that follows
 /// needs the real event loop, and a widget test cannot give both in that order.
+/// "1 sticker" / "4 stickers". Shared so the two pack surfaces cannot disagree.
+String _count(int n) => '$n sticker${n == 1 ? '' : 's'}';
+
 class _NameField extends StatelessWidget {
   const _NameField({
     required this.controller,

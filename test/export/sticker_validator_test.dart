@@ -105,10 +105,26 @@ void main() {
   });
 
   group('validatePack count', () {
-    test('fewer than 3 stickers fails with a helpful message', () async {
+    test('a SINGLE-sticker pack passes', () async {
+      // The enforced floor is 1, deliberately below WhatsApp's documented 3 —
+      // verified on device that v2.26.27.85 installs such packs, and wanting one
+      // sticker in WhatsApp is the common case. See
+      // WhatsAppSpec.enforcedMinStickersPerPack for the risk we accepted.
+      final r = await v.validatePack(packOf(1), stickersOf(1));
+      expect(r.ok, isTrue, reason: r.problems.join('; '));
+    });
+
+    test('a two-sticker pack passes', () async {
       final r = await v.validatePack(packOf(2), stickersOf(2));
+      expect(r.ok, isTrue, reason: r.problems.join('; '));
+    });
+
+    test('an EMPTY pack still fails with a helpful message', () async {
+      // The floor is lowered, not removed — a pack with nothing in it is not a
+      // pack, and WhatsApp would reject it on any build.
+      final r = await v.validatePack(packOf(0), stickersOf(0));
       expect(r.ok, isFalse);
-      expect(r.problems.any((p) => p.contains('at least 3')), isTrue);
+      expect(r.problems.any((p) => p.contains('at least 1')), isTrue);
     });
 
     test('more than 30 stickers fails', () async {
@@ -155,10 +171,12 @@ void main() {
 
   group('validatePack collects all problems', () {
     test('does not short-circuit on the first failure', () async {
-      // Count < 3 AND one sticker over the animated ceiling → at least 2 distinct problems.
+      // TWO stickers over the animated ceiling → 2 distinct problems. The count
+      // no longer contributes one: the enforced floor is 1, so this pack clears
+      // it and both problems have to come from the stickers themselves.
       final r = await v.validatePack(packOf(2, isAnimated: true), [
         stickerOf(600000, StickerKind.animated, id: 's0'),
-        stickerOf(400000, StickerKind.animated, id: 's1'),
+        stickerOf(700000, StickerKind.animated, id: 's1'),
       ]);
       expect(r.problems.length, greaterThanOrEqualTo(2));
     });

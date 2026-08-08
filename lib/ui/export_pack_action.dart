@@ -86,7 +86,7 @@ class _ConfirmDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final count = pack.stickerIds.length;
+    final count = stickerCount(pack);
 
     return AlertDialog(
       key: const Key('export-confirm'),
@@ -94,9 +94,9 @@ class _ConfirmDialog extends StatelessWidget {
       content: Text(
         again
             ? '"${pack.name}" is already in WhatsApp. Sending it again updates '
-                  'the $count stickers it contains.'
-            : '"${pack.name}" and its $count stickers will be added to your '
-                  'WhatsApp sticker tray.',
+                  'the $count it contains.'
+            : '"${pack.name}" and its $count will be added to your WhatsApp '
+                  'sticker tray.',
       ),
       actions: [
         TextButton(
@@ -146,13 +146,26 @@ class _ProblemsDialog extends StatelessWidget {
 
 /// Whether [pack] can be exported at all.
 ///
-/// WhatsApp refuses a pack under the floor, so the button is disabled rather
-/// than offered-then-refused; [shortfallLabel] says how far off it is.
+/// Reads the **enforced** floor, which is deliberately below WhatsApp's
+/// documented 3 — a single sticker can go straight to the tray. Kept as a
+/// function rather than inlined so raising the floor back to 3 needs no UI
+/// changes: [shortfallLabel] already says how far off a short pack is, and both
+/// call sites disable rather than offer-then-refuse.
 bool canExport(PackRecord pack) =>
-    pack.stickerIds.length >= WhatsAppSpec.minStickersPerPack;
+    pack.stickerIds.length >= WhatsAppSpec.enforcedMinStickersPerPack;
+
+/// "1 sticker" / "4 stickers".
+///
+/// With the enforced floor at 1, a one-sticker pack is the common case rather
+/// than an edge one, so "1 stickers" would be on screen constantly.
+String stickerCount(PackRecord pack) {
+  final n = pack.stickerIds.length;
+  return '$n sticker${n == 1 ? '' : 's'}';
+}
 
 String shortfallLabel(PackRecord pack) {
-  final short = WhatsAppSpec.minStickersPerPack - pack.stickerIds.length;
+  final short =
+      WhatsAppSpec.enforcedMinStickersPerPack - pack.stickerIds.length;
   return '$short more sticker${short == 1 ? '' : 's'} before you can add '
       'this pack to WhatsApp';
 }

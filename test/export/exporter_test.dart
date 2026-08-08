@@ -100,20 +100,32 @@ void main() {
     );
   });
 
-  test('an undersized pack is rejected and NO intent is fired', () async {
+  test('an EMPTY pack is rejected and NO intent is fired', () async {
     // The gate is the point: firing on an invalid pack trades our specific,
     // actionable problem list for an opaque WhatsApp rejection.
+    //
+    // Empty rather than undersized, because the enforced floor is now 1 — a
+    // single sticker is a legitimate pack (see
+    // WhatsAppSpec.enforcedMinStickersPerPack). Nothing at all still is not.
     await expectLater(
-      exporter.addPackToWhatsApp(_pack(2), _stickers(2)),
+      exporter.addPackToWhatsApp(_pack(0), _stickers(0)),
       throwsA(
         isA<PackNotValidException>().having(
           (e) => e.problems.join(' '),
           'problems',
-          contains('at least 3'),
+          contains('at least 1'),
         ),
       ),
     );
     expect(channel.intentsFired, isEmpty);
+  });
+
+  test('a SINGLE-sticker pack passes the gate and fires the intent', () async {
+    // The whole reason the floor was lowered: sending one sticker to WhatsApp
+    // without having to invent two more.
+    await exporter.addPackToWhatsApp(_pack(1), _stickers(1));
+
+    expect(channel.intentsFired, hasLength(1));
   });
 
   test('a mixed-kind pack is rejected before reaching WhatsApp', () async {
@@ -132,9 +144,12 @@ void main() {
   });
 
   test('every problem is reported, not just the first', () async {
+    // Two independently broken stickers, so the count no longer supplies one of
+    // the problems for free — the floor is 1 and this pack clears it. Validation
+    // must still collect both rather than stopping at the first.
     final stickers = [
       _sticker('s0', kind: StickerKind.staticImage, bytes: 150000), // oversize
-      _sticker('s1', kind: StickerKind.staticImage),
+      _sticker('s1', kind: StickerKind.staticImage, bytes: 200000), // oversize
     ];
 
     try {

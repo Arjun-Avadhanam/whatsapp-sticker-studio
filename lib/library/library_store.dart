@@ -109,8 +109,10 @@ class DriftLibraryStore implements LibraryStore {
       [r.id],
     );
     await _db.customStatement(
-      'INSERT INTO ${AppDatabase.searchTable}(id, blob) VALUES (?, ?);',
-      [r.id, r.searchBlob()],
+      'INSERT INTO ${AppDatabase.searchTable}(id, mine, auto) '
+      'VALUES (?, ?, ?);',
+      // Two columns so bm25 can weight the user's own words above the machine's.
+      [r.id, r.mineBlob(), r.autoBlob()],
     );
   }
 
@@ -122,9 +124,25 @@ class DriftLibraryStore implements LibraryStore {
     return row == null ? null : _fromStickerRow(row);
   }
 
+  /// Newest first, and **deterministically so**.
+  ///
+  /// Ordered here rather than in the Library screen: every caller wants it, and
+  /// a guarantee in one place cannot be forgotten by a screen.
+  ///
+  /// The id tiebreak is load-bearing, not defensive. drift stores `dateTime` as
+  /// unix **seconds**, so two stickers made in the same second share a
+  /// `createdAt` and SQLite is free to return them in any order — a grid that
+  /// silently reshuffles between rebuilds. The Maker mints ids from
+  /// `microsecondsSinceEpoch`, so a higher id really is later.
   @override
-  Future<List<StickerRecord>> allStickers() async =>
-      (await _db.select(_db.stickers).get()).map(_fromStickerRow).toList();
+  Future<List<StickerRecord>> allStickers() async {
+    final query = _db.select(_db.stickers)
+      ..orderBy([
+        (t) => OrderingTerm.desc(t.createdAt),
+        (t) => OrderingTerm.desc(t.id),
+      ]);
+    return (await query.get()).map(_fromStickerRow).toList();
+  }
 
   @override
   Future<void> updateMetadata(
@@ -181,8 +199,18 @@ class DriftLibraryStore implements LibraryStore {
   }
 
   @override
-  Future<List<PackRecord>> allPacks() async =>
-      (await _db.select(_db.packs).get()).map(_fromPackRow).toList();
+  /// Newest first, with the same id tiebreak as [allStickers] and for the same
+  /// reason: `createdAt` is stored to the second, so packs made in one sitting
+  /// would otherwise reorder themselves between rebuilds.
+  @override
+  Future<List<PackRecord>> allPacks() async {
+    final query = _db.select(_db.packs)
+      ..orderBy([
+        (t) => OrderingTerm.desc(t.createdAt),
+        (t) => OrderingTerm.desc(t.id),
+      ]);
+    return (await query.get()).map(_fromPackRow).toList();
+  }
 
   // ---- Row <-> record mapping --------------------------------------------
 

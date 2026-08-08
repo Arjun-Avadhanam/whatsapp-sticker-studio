@@ -314,9 +314,10 @@ void main() {
     expect(find.text('Add to pack'), findsWidgets);
     expect(find.text('New pack'), findsOneWidget);
 
-    // Naming it creates the pack and the export card appears — but disabled,
-    // because one sticker is below WhatsApp's 3-sticker floor. Offering an
-    // enabled button here would only earn a rejection.
+    // Naming it creates the pack, and the export card appears READY with a
+    // single sticker: the enforced floor is 1, so one sticker can go straight to
+    // WhatsApp without inventing two more. See
+    // WhatsAppSpec.enforcedMinStickersPerPack.
     await tester.tap(find.text('New pack'));
     await tester.pump();
     await tester.enterText(find.byKey(const Key('pack-name')), 'Road trip');
@@ -329,12 +330,16 @@ void main() {
     await scrollToBottom(tester);
 
     expect(find.byKey(const Key('export-card')), findsOneWidget);
-    expect(find.textContaining('2 more stickers'), findsOneWidget);
+    expect(find.textContaining('1 sticker · ready'), findsOneWidget);
 
     final button = tester.widget<FilledButton>(
       find.byKey(const Key('export-button')),
     );
-    expect(button.onPressed, isNull, reason: 'below the 3-sticker floor');
+    expect(
+      button.onPressed,
+      isNotNull,
+      reason: 'one sticker is enough to send to WhatsApp',
+    );
   });
 
   testWidgets('a tagging failure offers a retry, never looks like loss', (

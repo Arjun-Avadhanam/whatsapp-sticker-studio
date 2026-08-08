@@ -94,6 +94,40 @@ void main() {
       final ids = (await store.allStickers()).map((s) => s.id).toSet();
       expect(ids, {'1', '2'});
     });
+
+    test('allStickers is newest first', () async {
+      // The Library shows this order directly, and "what I just made" is what a
+      // user looks for first. Guaranteed by the store rather than sorted in the
+      // UI, so every caller gets it and no screen can forget.
+      await store.saveSticker(
+        sampleSticker(id: 'old').copyWith(createdAt: DateTime(2026, 1, 1)),
+      );
+      await store.saveSticker(
+        sampleSticker(id: 'new').copyWith(createdAt: DateTime(2026, 6, 1)),
+      );
+      await store.saveSticker(
+        sampleSticker(id: 'middle').copyWith(createdAt: DateTime(2026, 3, 1)),
+      );
+
+      expect((await store.allStickers()).map((s) => s.id), [
+        'new',
+        'middle',
+        'old',
+      ]);
+    });
+
+    test('stickers made in the same second order deterministically', () async {
+      // drift stores dateTime as unix SECONDS, so two stickers made in the same
+      // second share a createdAt and would otherwise come back in arbitrary
+      // order — a grid that reshuffles itself between rebuilds. The id breaks
+      // the tie: the Maker mints it from microsecondsSinceEpoch, so a higher id
+      // is genuinely later.
+      final t = DateTime(2026, 5, 5);
+      await store.saveSticker(sampleSticker(id: '1000').copyWith(createdAt: t));
+      await store.saveSticker(sampleSticker(id: '2000').copyWith(createdAt: t));
+
+      expect((await store.allStickers()).map((s) => s.id), ['2000', '1000']);
+    });
   });
 
   group('updateMetadata', () {

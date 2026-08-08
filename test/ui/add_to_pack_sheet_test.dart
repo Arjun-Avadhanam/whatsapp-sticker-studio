@@ -136,12 +136,12 @@ void main() {
     await openSheet(tester, await saveSticker(id: 'b'));
 
     expect(find.text('Inside jokes'), findsOneWidget);
-    // A pack under the 3-sticker floor cannot be exported, so say so before the
-    // user goes looking for a button that will refuse them.
-    expect(
-      find.textContaining('${WhatsAppSpec.minStickersPerPack - 1} more'),
-      findsOneWidget,
-    );
+    // The count itself, with no shortfall warning: the enforced floor is 1, so a
+    // one-sticker pack is already sendable and telling the user it is short would
+    // be false. The warning copy still exists and is covered in
+    // export_pack_action_test, in case the floor is raised back to 3.
+    expect(find.textContaining('1 sticker'), findsOneWidget);
+    expect(find.textContaining('more before'), findsNothing);
   });
 
   testWidgets('tapping a pack adds the sticker and closes', (tester) async {

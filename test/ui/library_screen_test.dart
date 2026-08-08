@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -5,9 +6,39 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatsapp_sticker_studio/app/dependencies.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
+import 'package:whatsapp_sticker_studio/search/search_service.dart';
 import 'package:whatsapp_sticker_studio/ui/library_screen.dart';
 
 import '../app/test_dependencies.dart';
+
+/// Wraps the real search so tests can count queries and control their timing.
+///
+/// Delegating rather than faking keeps the ranking real — these tests assert on
+/// what search actually returns, not on a canned list.
+class SpySearch implements SearchService {
+  SpySearch(this._inner);
+  final SearchService _inner;
+
+  final List<String> queries = [];
+
+  /// When set, every query waits on this instead of returning — used to force
+  /// two requests to be in flight at once.
+  Completer<void>? gate;
+
+  @override
+  Future<List<SearchHit>> query(String q, {int limit = 50}) async {
+    queries.add(q);
+    if (gate != null) await gate!.future;
+    return _inner.query(q, limit: limit);
+  }
+
+  @override
+  Future<void> reindex() => _inner.reindex();
+
+  @override
+  Future<void> embedSticker(StickerRecord sticker) =>
+      _inner.embedSticker(sticker);
+}
 
 void main() {
   late AppDependencies deps;
@@ -134,6 +165,140 @@ void main() {
 
     expect(find.byType(StickerTile), findsOneWidget);
     expect(find.text('Untitled'), findsOneWidget);
+  });
+
+  group('search', () {
+    late SpySearch spy;
+
+    /// Pumps with search spied on, so query timing and count are observable.
+    Future<void> pumpWithSpy(WidgetTester tester) async {
+      spy = SpySearch(deps.search);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LibraryScreen(dependencies: deps, search: spy),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    /// Types [q] and lets the debounce elapse.
+    Future<void> search(WidgetTester tester, String q) async {
+      await tester.enterText(find.byKey(const Key('library-search')), q);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+    }
+
+    testWidgets('typing filters the grid, and EXCLUDES non-matches', (
+      tester,
+    ) async {
+      // Asserting only that the match is present would pass if search returned
+      // everything — which is exactly how the semantic-threshold bug survived
+      // its tests. The distractor's absence is the real assertion.
+      await saveSticker(id: 'dog', manualName: 'penguin');
+      await saveSticker(id: 'car', manualName: 'motorbike');
+      await pumpWithSpy(tester);
+
+      await search(tester, 'penguin');
+
+      final tiles = tester
+          .widgetList<StickerTile>(find.byType(StickerTile))
+          .map((t) => t.sticker.id);
+      expect(tiles, ['dog']);
+      expect(tiles, isNot(contains('car')));
+    });
+
+    testWidgets('rapid typing issues ONE query, not one per keystroke', (
+      tester,
+    ) async {
+      await saveSticker(id: 's1', manualName: 'penguin');
+      await pumpWithSpy(tester);
+
+      // Each entry lands well inside the debounce window.
+      for (final q in ['p', 'pe', 'pen', 'peng']) {
+        await tester.enterText(find.byKey(const Key('library-search')), q);
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(spy.queries, ['peng']);
+    });
+
+    testWidgets('clearing the field shows the whole library again', (
+      tester,
+    ) async {
+      await saveSticker(id: 'a', manualName: 'penguin');
+      await saveSticker(id: 'b', manualName: 'motorbike');
+      await pumpWithSpy(tester);
+
+      await search(tester, 'penguin');
+      expect(find.byType(StickerTile), findsOneWidget);
+
+      await search(tester, '');
+
+      expect(find.byType(StickerTile), findsNWidgets(2));
+      // An empty query is "show everything", which the store already answers —
+      // asking search for it would be a wasted round trip and, with FTS5, an
+      // empty MATCH returns nothing at all.
+      expect(spy.queries, ['penguin']);
+    });
+
+    testWidgets('a query matching nothing says so, and not as an error', (
+      tester,
+    ) async {
+      await saveSticker(id: 'a', manualName: 'penguin');
+      await pumpWithSpy(tester);
+
+      await search(tester, 'zzzznothing');
+
+      expect(find.byKey(const Key('library-no-results')), findsOneWidget);
+      expect(find.byType(StickerTile), findsNothing);
+      // Distinct from the empty-library state: one means "nothing here yet", the
+      // other "nothing matched", and they call for different next actions.
+      expect(find.byKey(const Key('library-empty')), findsNothing);
+    });
+
+    testWidgets('a slow earlier query cannot overwrite a later one', (
+      tester,
+    ) async {
+      // Debouncing does not prevent overlap: a slow query can still be in flight
+      // when the next one resolves, and without a guard its stale results would
+      // land last and replace the newer ones. The user sees results for a query
+      // they have already changed.
+      await saveSticker(id: 'a', manualName: 'penguin');
+      await saveSticker(id: 'b', manualName: 'motorbike');
+      await pumpWithSpy(tester);
+
+      // First query is held open mid-flight.
+      final held = Completer<void>();
+      spy.gate = held;
+      await search(tester, 'penguin');
+
+      // Second query runs to completion while the first is still blocked.
+      spy.gate = null;
+      await search(tester, 'motorbike');
+      expect(
+        tester
+            .widgetList<StickerTile>(find.byType(StickerTile))
+            .map((t) => t.sticker.id),
+        ['b'],
+      );
+
+      // Now let the stale one finish. It must be discarded.
+      held.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(
+        tester
+            .widgetList<StickerTile>(find.byType(StickerTile))
+            .map((t) => t.sticker.id),
+        ['b'],
+        reason: 'the superseded query must not win by finishing last',
+      );
+    });
   });
 
   testWidgets('a missing file does not take the whole grid down', (

@@ -23,7 +23,7 @@ class _Attempt {
 /// its filter chain avoids shuttling raw frames across the platform boundary.
 /// ffmpeg is required here regardless — Android has no built-in animated-WebP
 /// encoder at any API level.
-class AnimatedEncoder implements Encoder {
+class AnimatedEncoder implements Encoder, StaticPromoter {
   const AnimatedEncoder();
 
   static const int _dim = WhatsAppSpec.dimension;
@@ -97,6 +97,7 @@ class AnimatedEncoder implements Encoder {
   ///
   /// Promotion moves the sticker from the 100 KB static budget to the 500 KB
   /// animated one, so quality goes *up*, never down.
+  @override
   Future<EncodedSticker> promoteStatic(Uint8List stillBytes) async {
     final work = await Directory.systemTemp.createTemp('promote');
     try {

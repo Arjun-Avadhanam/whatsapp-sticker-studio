@@ -106,3 +106,13 @@ class EncoderBudgetException extends EncoderException {
 abstract class Encoder {
   Future<EncodedSticker> encode(MediaHandle input, EncodeParams params);
 }
+
+/// Re-encodes a still as a genuinely animated WebP (≥2 identical frames).
+///
+/// Split out of [AnimatedEncoder] as its own interface so pack logic can depend
+/// on *promotion* without depending on ffmpeg. Packs are otherwise pure
+/// bookkeeping, and tying them to the one collaborator that needs a device
+/// would make the whole feature untestable off-device.
+abstract class StaticPromoter {
+  Future<EncodedSticker> promoteStatic(Uint8List stillBytes);
+}

@@ -5,6 +5,7 @@ import 'package:drift/native.dart';
 import 'package:whatsapp_sticker_studio/app/dependencies.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/encoder/animated_encoder.dart';
+import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/static_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/tray_icon_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/webp_encoder.dart';
@@ -14,6 +15,7 @@ import 'package:whatsapp_sticker_studio/library/database.dart';
 import 'package:whatsapp_sticker_studio/library/library_store.dart';
 import 'package:whatsapp_sticker_studio/models/pack_record.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
+import 'package:whatsapp_sticker_studio/packs/pack_service.dart';
 import 'package:whatsapp_sticker_studio/search/search_service.dart';
 import 'package:whatsapp_sticker_studio/sharing/sharing_service.dart';
 import 'package:whatsapp_sticker_studio/tagger/tagging_orchestrator.dart';
@@ -60,6 +62,32 @@ class FlakyTagger implements TaggingService {
     calls++;
     if (calls <= failures) throw StateError('tagger unavailable');
     return tags;
+  }
+}
+
+/// Counts promotions and returns a plausible animated result.
+///
+/// The real one shells out to ffmpeg; this is why [StaticPromoter] is an
+/// interface at all — pack logic is pure bookkeeping and must not need a device.
+class FakePromoter implements StaticPromoter {
+  int calls = 0;
+
+  @override
+  Future<EncodedSticker> promoteStatic(Uint8List stillBytes) async {
+    calls++;
+    return EncodedSticker(
+      webpBytes: Uint8List.fromList(List.filled(2048, 9)),
+      kind: StickerKind.animated,
+      width: 512,
+      height: 512,
+      sizeBytes: 2048,
+      report: const QualityReport(
+        fps: 10,
+        frames: 2,
+        quality: 90,
+        sizeBytes: 2048,
+      ),
+    );
   }
 }
 
@@ -111,6 +139,14 @@ Future<AppDependencies> testDependencies({
     tagging: TaggingOrchestrator(taggingService, store, search: search),
     exporter: FakeExporter(),
     packStager: PackStager(baseDir: dir),
+    packs: PackService(
+      store: store,
+      trayIcons: TrayIconEncoder(FakeWebpEncoder()),
+      // Fake, not AnimatedEncoder: promotion shells out to ffmpeg, and packs
+      // must stay testable without a device.
+      promoter: FakePromoter(),
+      directory: dir,
+    ),
     sharing: SharingService(FakeShareBackend(), store),
     stickerDirectory: dir,
   );
@@ -122,3 +158,21 @@ MediaHandle fakeImage() => MediaHandle(
   kind: MediaKind.image,
   mimeType: 'image/png',
 );
+
+/// A genuinely decodable 1x1 PNG.
+///
+/// Needed wherever real decoding happens rather than a fake standing in —
+/// `Image.memory` in the preview, and `TrayIconEncoder`, which decodes with the
+/// `image` package before handing pixels to the WebP encoder. Filler bytes fail
+/// there with "could not decode", which looks like a logic bug and is not one.
+Uint8List onePixelPng() => Uint8List.fromList(const [
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
+  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+  0x42, 0x60, 0x82,
+]);

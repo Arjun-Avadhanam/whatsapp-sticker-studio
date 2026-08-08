@@ -15,6 +15,7 @@ import '../export/sticker_validator.dart';
 import '../export/webp_media_probe.dart';
 import '../library/database.dart';
 import '../library/library_store.dart';
+import '../packs/pack_service.dart';
 import '../search/search_service.dart';
 import '../search/text_embedder.dart';
 import '../sharing/sharing_service.dart';
@@ -41,6 +42,7 @@ class AppDependencies {
     required this.tagging,
     required this.exporter,
     required this.packStager,
+    required this.packs,
     required this.sharing,
     required this.stickerDirectory,
   });
@@ -60,6 +62,10 @@ class AppDependencies {
   final TaggingOrchestrator tagging;
   final Exporter exporter;
   final PackStager packStager;
+
+  /// Pack creation and growth, including the silent static→animated promotion.
+  final PackService packs;
+
   final SharingService sharing;
 
   /// Where encoded stickers and thumbnails live.
@@ -89,13 +95,14 @@ class AppDependencies {
     );
 
     final tagger = MlKitTagger();
+    const animated = AnimatedEncoder();
 
     return AppDependencies(
       database: database,
       store: store,
       search: search,
       staticEncoder: StaticEncoder(NativeWebpEncoder()),
-      animatedEncoder: const AnimatedEncoder(),
+      animatedEncoder: animated,
       trayIconEncoder: TrayIconEncoder(NativeWebpEncoder()),
       tagger: tagger,
       tagging: TaggingOrchestrator(tagger, store, search: search),
@@ -107,6 +114,14 @@ class AppDependencies {
         authority: 'com.arjun.whatsapp_sticker_studio.stickercontentprovider',
       ),
       packStager: PackStager(),
+      packs: PackService(
+        store: store,
+        trayIcons: TrayIconEncoder(NativeWebpEncoder()),
+        // The same AnimatedEncoder as above, taken through its StaticPromoter
+        // face: packs only ever need promotion, never a full encode.
+        promoter: animated,
+        directory: stickerDir,
+      ),
       sharing: SharingService(const PlatformShareBackend(), store),
       stickerDirectory: stickerDir,
     );

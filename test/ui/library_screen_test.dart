@@ -301,6 +301,28 @@ void main() {
     });
   });
 
+  testWidgets('tapping a sticker opens the detail sheet and the grid '
+      'reflects the edit', (tester) async {
+    // The round trip that makes the Library useful: rename from the grid and see
+    // the new name without a manual refresh.
+    await saveSticker(id: 's1', manualName: 'old name');
+    await pump(tester);
+
+    await tester.tap(find.byType(StickerTile));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byKey(const Key('detail-name')), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('detail-name')), 'new name');
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('new name'), findsOneWidget);
+    expect(find.text('old name'), findsNothing);
+  });
+
   testWidgets('a missing file does not take the whole grid down', (
     tester,
   ) async {

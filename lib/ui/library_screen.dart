@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../app/dependencies.dart';
 import '../models/sticker_record.dart';
 import '../search/search_service.dart';
+import 'sticker_detail_sheet.dart';
 
 /// How long typing has to stop before a query is issued.
 ///
@@ -67,6 +68,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _debounceTimer = Timer(_debounce, () => _run(q));
   }
 
+  /// Opens the detail sheet, and reloads if anything was saved.
+  ///
+  /// Reloads through the *current* query rather than resetting to the whole
+  /// library: a rename can move a sticker out of the results it was found in, and
+  /// silently dropping the user's filter would lose their place.
+  Future<void> _openDetail(StickerRecord sticker) async {
+    final changed = await showStickerDetailSheet(
+      context: context,
+      dependencies: widget.dependencies,
+      sticker: sticker,
+    );
+    if (changed && mounted) await _run(_field.text);
+  }
+
   Future<void> _run(String q) async {
     final id = ++_requestId;
 
@@ -124,7 +139,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             null => const Center(child: CircularProgressIndicator()),
             [] when _query.isNotEmpty => _NoResults(query: _query),
             [] => const _EmptyLibrary(),
-            _ => _Grid(stickers: stickers),
+            _ => _Grid(stickers: stickers, onTap: _openDetail),
           },
         ),
       ],
@@ -133,8 +148,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
 }
 
 class _Grid extends StatelessWidget {
-  const _Grid({required this.stickers});
+  const _Grid({required this.stickers, required this.onTap});
+
   final List<StickerRecord> stickers;
+  final ValueChanged<StickerRecord> onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -150,7 +167,8 @@ class _Grid extends StatelessWidget {
         childAspectRatio: 0.82, // square sticker + one line of label
       ),
       itemCount: stickers.length,
-      itemBuilder: (_, i) => StickerTile(sticker: stickers[i]),
+      itemBuilder: (_, i) =>
+          StickerTile(sticker: stickers[i], onTap: () => onTap(stickers[i])),
     );
   }
 }

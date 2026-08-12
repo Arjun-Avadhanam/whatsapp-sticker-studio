@@ -140,6 +140,59 @@ void main() {
     expect(exporter.exported.single.id, 'p1');
   });
 
+  group('deleting a pack', () {
+    testWidgets('asks first and cancelling keeps it', (tester) async {
+      await savePack(id: 'p1', name: 'Inside jokes', stickers: 2);
+      await pump(tester);
+
+      await tester.tap(find.byKey(const Key('delete-p1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('confirm-delete')), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(await deps.store.getPack('p1'), isNotNull);
+    });
+
+    testWidgets('confirming removes the pack but KEEPS the stickers', (
+      tester,
+    ) async {
+      // The user grouped these; they did not create them here. Losing the
+      // originals to a tidy-up would be unrecoverable, so the dialog says so
+      // and the behaviour matches.
+      final pack = await savePack(id: 'p1', name: 'Inside jokes', stickers: 2);
+      await pump(tester);
+
+      await tester.tap(find.byKey(const Key('delete-p1')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('stay in your library'), findsOneWidget);
+
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(await deps.store.getPack('p1'), isNull);
+      for (final id in pack.stickerIds) {
+        expect(await deps.store.getSticker(id), isNotNull);
+      }
+      expect(find.byType(PackTile), findsNothing);
+    });
+
+    testWidgets('the dialog warns that WhatsApp keeps its copy', (
+      tester,
+    ) async {
+      // A pack is a one-shot import: deleting ours does not reach into WhatsApp,
+      // and a user who assumes it does will think the delete failed.
+      await savePack(id: 'p1', name: 'Inside jokes', stickers: 1);
+      await pump(tester);
+
+      await tester.tap(find.byKey(const Key('delete-p1')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('sticker manager'), findsOneWidget);
+    });
+  });
+
   testWidgets('this screen is the ONLY way back to an existing pack', (
     tester,
   ) async {

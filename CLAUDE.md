@@ -316,6 +316,21 @@ a half-typed name to another action is silent data loss.
 2026-08-06: a shared WebP arrives in WhatsApp as an ordinary image. A test asserts
 the wrong wording appears nowhere.
 
+**Deleting is permanent, confirmed, and asymmetric between stickers and packs** (added 2026-08-13
+after device use showed nothing could be removed at all).
+- **Deleting a sticker removes the record, its FTS row, its embedding, its membership of any pack,
+  AND the file.** All of it in one transaction plus a best-effort file unlink: an orphaned index row
+  surfaces a hit that opens nothing, a stale id makes a pack export a sticker that no longer exists,
+  and a "delete" that leaves the bytes on disk is not what the word means. `stickerIds` is a JSON
+  list, so nothing cleans it up unless the store does — it cannot be a foreign key.
+- **Deleting a pack KEEPS its stickers**, and the dialog says so. The user grouped them; they did not
+  create them there, and losing originals to a tidy-up is unrecoverable.
+- **The pack dialog also warns that WhatsApp keeps its copy.** A pack is a one-shot import — deleting
+  ours does not reach into WhatsApp, and a user assuming otherwise will think the delete failed.
+- The sticker file is deleted with `deleteSync`. Async `dart:io` never completes in `testWidgets`'
+  fake-time zone, so `await file.delete()` left the sheet un-popped and the test hanging on a null
+  result with no error; one small file is microseconds anyway.
+
 **Considered and NOT done: weighting the name above manual tags.** Both are the
 user's own words and equally deliberate, so they share the `mine` column at 10×.
 Known consequence: bm25 length-normalises the whole column, so long notes slightly
@@ -568,7 +583,47 @@ schema migration, and repairing a drifted index.
   `^`, `(`, `)` are operators and AND/OR/NOT/NEAR are keywords — an apostrophe in "Arjun's face"
   would be a syntax error, i.e. a crash on ordinary input. Each term is quoted into a literal phrase.
 
-**Semantic layer — DONE and device-verified 2026-08-01.** MediaPipe **Universal Sentence Encoder**
+## ⛔ SEMANTIC SEARCH IS CUT FROM v1 — keyword only (decided 2026-08-13)
+
+**The embedder is deliberately NOT wired into `AppDependencies.bootstrap`.** Everything below about
+the semantic layer still describes working code; it is simply not switched on. Re-enabling is one
+constructor argument — do it only with new device evidence, not on the strength of the notes below.
+
+**Why: measured on device, USE cannot tell a real query from gibberish.** Cosine spread across a
+5-sticker library:
+
+| query | kind | spread | top score |
+|---|---|---|---|
+| `beer` | real | 0.0883 | 0.9574 ✅ correct |
+| `football` | real | 0.0838 | 0.9428 ✅ correct |
+| `phone` | real | 0.1173 | 0.9519 ✅ correct |
+| `ufidjsjsjsjs` | gibberish | 0.0833 | 0.9200 |
+| `qqqqzzzzxxxx` | gibberish | 0.0827 | 0.9328 |
+| `zzzzzz` | gibberish | 0.0926 | **0.9465** |
+
+**The ranges overlap.** Gibberish `zzzzzz` has a *wider* spread than real `football`, and a *higher*
+top score than `football`'s correct answer. Standard deviations above the mean overlap too (real
+1.93/1.92/1.36 vs gibberish 1.49/1.33/1.31). **No threshold exists** — not absolute, not relative,
+not z-score — because the distributions genuinely overlap. Gibberish also ranked the same sticker
+first every time: some records simply sit near the centre of the embedding space.
+
+**In use this was user-visible**: gibberish returned most of the library, and semantic noise
+outranked exact keyword hits (a sticker named "Captain Beer" losing to an unrelated one).
+
+**The relative-ranking fix was itself the bug, one level down.** Rescaling best..worst to 0..1 before
+applying `semanticMargin` *manufactures* signal from a sliver of absolute spread; the `spread <= 0`
+guard is effectively never true. Fixing an absolute threshold with a relative one just moved the
+failure.
+
+**Judgement: junk results are worse than no results.** Search that confidently returns five wrong
+stickers for a typo teaches the user not to trust it. Keyword search is also far stronger since v4
+weights the user's own words 10× above auto-tags — semantic existed to compensate for generic tags,
+and is no longer the only defence.
+
+**If revisiting:** the 24.9 MB BERT embedder is the obvious candidate, and the bar is a *measured*
+separation between real and nonsense queries on a real library — not a plausible-looking threshold.
+
+**Semantic layer — built and device-verified 2026-08-01, now OFF (see above).** MediaPipe **Universal Sentence Encoder**
 (`com.google.mediapipe:tasks-text`), model bundled at
 `android/app/src/main/assets/universal_sentence_encoder.tflite`.
 

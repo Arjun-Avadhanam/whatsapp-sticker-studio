@@ -83,6 +83,65 @@ void semanticTests() {
     );
   });
 
+  testWidgets('MEASURE: cosine spread for a real query vs gibberish', (
+    tester,
+  ) async {
+    // Diagnosing the 2026-08-13 device finding: a gibberish query returned most
+    // of the library. Cause is that `_semanticScores` rescales best..worst to
+    // 0..1 before applying the margin, so a sliver of absolute spread is
+    // amplified into apparent signal — the guard `spread <= 0` is effectively
+    // never true.
+    //
+    // The fix needs a minimum ABSOLUTE spread, and this measures what separates
+    // the two cases so that number comes from data rather than a guess. Picking
+    // it blind is exactly how the original absolute-threshold bug happened.
+    final library = <String, String>{
+      'beer': 'Captain Beer',
+      'skin': 'skin room shoe',
+      'poster': 'poster world class football',
+      'phone': 'mobile phone screenshot',
+      'party': 'screenshot mobile party',
+    };
+
+    final vectors = <String, List<double>>{};
+    for (final entry in library.entries) {
+      final v = await embedder.embed(entry.value);
+      expect(v, isNotNull, reason: 'model failed on "${entry.value}"');
+      vectors[entry.key] = v!;
+    }
+
+    Future<void> report(String label, String query) async {
+      final q = await embedder.embed(query);
+      expect(q, isNotNull);
+
+      final sims = <String, double>{
+        for (final e in vectors.entries) e.key: cosineSimilarity(q!, e.value),
+      };
+      final ranked = sims.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final spread = ranked.first.value - ranked.last.value;
+
+      debugPrint(
+        '>>> SPREAD [$label] query="$query" '
+        'spread=${spread.toStringAsFixed(4)} '
+        'best=${ranked.first.key}@${ranked.first.value.toStringAsFixed(4)} '
+        'worst=${ranked.last.value.toStringAsFixed(4)}',
+      );
+      for (final e in ranked) {
+        debugPrint('        ${e.key} = ${e.value.toStringAsFixed(4)}');
+      }
+    }
+
+    // Queries with a genuinely right answer.
+    await report('REAL', 'beer');
+    await report('REAL', 'football');
+    await report('REAL', 'phone');
+    // Queries with no right answer. These must end up returning nothing.
+    await report('GIBBERISH', 'ufidjsjsjsjs');
+    await report('GIBBERISH', 'qqqqzzzzxxxx');
+    await report('GIBBERISH', 'zzzzzz');
+  });
+
   testWidgets('end to end: "puppy" finds a sticker tagged only "dog"', (
     tester,
   ) async {

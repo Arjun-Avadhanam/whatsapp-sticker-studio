@@ -18,7 +18,6 @@ import '../library/database.dart';
 import '../library/library_store.dart';
 import '../packs/pack_service.dart';
 import '../search/search_service.dart';
-import '../search/text_embedder.dart';
 import '../sharing/sharing_service.dart';
 import '../tagger/mlkit_tagger.dart';
 import '../tagger/tagging_orchestrator.dart';
@@ -92,13 +91,28 @@ class AppDependencies {
     );
     final store = DriftLibraryStore(database);
 
-    // Search degrades to keyword-only if the embedding model is unavailable —
-    // it is an enhancement, never a dependency.
-    final search = FtsSearchService(
-      database,
-      store,
-      embedder: NativeTextEmbedder(),
-    );
+    // **KEYWORD-ONLY IN v1 — the embedder is deliberately NOT wired in.**
+    //
+    // Semantic search was measured on device 2026-08-13 and cannot tell a
+    // meaningful query from nonsense. Cosine spreads for real queries
+    // (0.084/0.088/0.117) OVERLAP those for gibberish (0.083/0.083/0.093), and
+    // gibberish "zzzzzz" scored a higher top match (0.9465) than the correct
+    // answer for "football" (0.9428). No threshold separates them — not
+    // absolute, not relative, not standard deviations from the mean — because
+    // the distributions genuinely overlap. In use it returned most of the
+    // library for gibberish and drowned exact keyword hits.
+    //
+    // Junk results are worse than no results: search that confidently returns
+    // five wrong stickers for a typo teaches the user not to trust it. Keyword
+    // search is also much stronger now that v4 weights the user's own words
+    // above auto-tags — semantic was designed to compensate for generic tags,
+    // and that compensation is no longer the only defence.
+    //
+    // Everything is retained — `NativeTextEmbedder`, the bundled model, the
+    // blending code and its tests — so re-enabling is *this one argument*. Do
+    // that only with device evidence that a better model (the 24.9 MB BERT
+    // embedder is the obvious candidate) actually discriminates. See CLAUDE.md.
+    final search = FtsSearchService(database, store);
 
     // A schema upgrade can leave the search index empty — v4 changed the FTS5
     // column layout, and the store's per-save hook only covers stickers written

@@ -41,6 +41,20 @@ abstract class LibraryStore {
 
   Future<void> incrementUsage(String id);
 
+  /// Removes a sticker from the library, its search index and any pack.
+  ///
+  /// Does **not** touch the file on disk — that is the caller's, because the
+  /// store has no business doing IO and because a record and its bytes can be
+  /// deleted for different reasons.
+  Future<void> deleteSticker(String id);
+
+  /// Removes a pack. Its stickers stay in the library, unfiled.
+  ///
+  /// Deleting the stickers too would make "delete pack" a far more destructive
+  /// action than it reads as — the user grouped them, they did not create them
+  /// here, and losing the originals to a tidy-up is unrecoverable.
+  Future<void> deletePack(String id);
+
   Future<void> savePack(PackRecord p);
   Future<PackRecord?> getPack(String id);
   Future<List<PackRecord>> allPacks();
@@ -177,6 +191,51 @@ class DriftLibraryStore implements LibraryStore {
   @override
   Future<void> setTaggingStatus(String id, TaggingStatus status) =>
       _mutate(id, (current) => current.copyWith(taggingStatus: status));
+
+  /// One transaction covering the row, the search index, the embedding and the
+  /// sticker's membership of any pack.
+  ///
+  /// All four, because a half-deleted sticker is worse than a live one: an
+  /// orphaned FTS row surfaces a hit that opens nothing, and an id left in
+  /// `stickerIds` makes the pack export a sticker that no longer exists.
+  @override
+  Future<void> deleteSticker(String id) => _db.transaction(() async {
+    await (_db.delete(_db.stickers)..where((t) => t.id.equals(id))).go();
+    await _db.customStatement(
+      'DELETE FROM ${AppDatabase.searchTable} WHERE id = ?;',
+      [id],
+    );
+    await _db.customStatement(
+      'DELETE FROM ${AppDatabase.embeddingTable} WHERE id = ?;',
+      [id],
+    );
+
+    // Packs store their members as a JSON list, so this cannot be a foreign
+    // key — the pack rows have to be rewritten by hand.
+    for (final pack in await allPacks()) {
+      if (!pack.stickerIds.contains(id)) continue;
+      final remaining = pack.stickerIds.where((s) => s != id).toList();
+      await _db
+          .into(_db.packs)
+          .insertOnConflictUpdate(
+            _toPackRow(pack.copyWith(stickerIds: remaining)),
+          );
+    }
+  });
+
+  /// Deletes the pack row only. Its stickers survive, unfiled.
+  @override
+  Future<void> deletePack(String id) => _db.transaction(() async {
+    await (_db.delete(_db.packs)..where((t) => t.id.equals(id))).go();
+
+    // Clear the back-reference, or the stickers keep claiming membership of a
+    // pack that no longer exists — which would show them as already-filed and
+    // make them impossible to reason about.
+    for (final sticker in await allStickers()) {
+      if (sticker.packId != id) continue;
+      await _write(sticker.copyWith(packId: null));
+    }
+  });
 
   @override
   Future<void> incrementUsage(String id) => _mutate(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../app/dependencies.dart';
 import '../models/sticker_record.dart';
 import '../sharing/sharing_service.dart';
+import 'confirm_delete.dart';
 
 /// What the detail sheet did.
 ///
@@ -16,6 +17,7 @@ class StickerDetailResult {
   const StickerDetailResult({
     this.changed = false,
     this.wantsAddToPack = false,
+    this.deleted = false,
   });
 
   /// Metadata was written, so anything displaying this sticker is stale.
@@ -24,6 +26,10 @@ class StickerDetailResult {
   /// The user asked to file this sticker into a pack. The sheet is already
   /// closed; the caller opens the picker.
   final bool wantsAddToPack;
+
+  /// The sticker was deleted. It no longer exists, so a caller holding the old
+  /// record must not act on it.
+  final bool deleted;
 }
 
 /// Shows one sticker and lets the user describe it.
@@ -120,6 +126,46 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
     }
   }
 
+  /// Deletes the sticker, its record and its file — after asking.
+  ///
+  /// The file goes too. Leaving orphaned WebPs behind would grow the app's
+  /// storage with bytes nothing can ever reach again, and "delete" that leaves
+  /// the data on disk is not what the word means.
+  Future<void> _delete() async {
+    final name = widget.sticker.manualName?.trim();
+    final confirmed = await confirmDelete(
+      context: context,
+      title: 'Delete this sticker?',
+      message: name == null || name.isEmpty
+          ? 'It will be removed from your library and from any pack it is in. '
+                'This cannot be undone.'
+          : '"$name" will be removed from your library and from any pack it is '
+                'in. This cannot be undone.',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _busy = true);
+    await widget.dependencies.store.deleteSticker(widget.sticker.id);
+
+    // Best-effort: the record is already gone, so a file that refuses to delete
+    // is wasted space, not a failed deletion, and must not surface as an error.
+    //
+    // Synchronous on purpose. One small file is microseconds, and async
+    // `dart:io` never completes inside `testWidgets`' fake-time zone — an
+    // `await file.delete()` here left the sheet un-popped and the test hanging
+    // on a null result, with no error to explain it.
+    try {
+      final file = File(widget.sticker.filePath);
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {}
+
+    if (mounted) {
+      Navigator.of(
+        context,
+      ).pop(const StickerDetailResult(changed: true, deleted: true));
+    }
+  }
+
   /// Shares the sticker **as a file**, through the OS share sheet.
   ///
   /// Stays inside this sheet because the share sheet is an OS surface, not
@@ -196,8 +242,19 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
                 ),
                 const SizedBox(height: 8),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    // Left, away from Save, and the only destructive control on
+                    // the sheet — a mis-tap here cannot be undone.
+                    TextButton.icon(
+                      key: const Key('delete-sticker'),
+                      onPressed: _busy ? null : _delete,
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('Delete'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    const Spacer(),
                     TextButton(
                       onPressed: _busy
                           ? null

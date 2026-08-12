@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
@@ -216,6 +217,76 @@ void main() {
       expect((await store.getSticker('1'))!.usageCount, 1);
       await store.incrementUsage('1');
       expect((await store.getSticker('1'))!.usageCount, 2);
+    });
+  });
+
+  group('deleting', () {
+    test('a deleted sticker is gone from the library', () async {
+      await store.saveSticker(sampleSticker(id: '1'));
+      await store.saveSticker(sampleSticker(id: '2'));
+
+      await store.deleteSticker('1');
+
+      expect(await store.getSticker('1'), isNull);
+      expect((await store.allStickers()).map((s) => s.id), ['2']);
+    });
+
+    test('a deleted sticker leaves no search row behind', () async {
+      // An orphaned FTS row surfaces a hit that opens nothing — worse than the
+      // sticker still existing, because it looks like a broken app rather than
+      // a full library.
+      await store.saveSticker(sampleSticker(id: '1'));
+
+      await store.deleteSticker('1');
+
+      final rows = await db
+          .customSelect(
+            'SELECT id FROM ${AppDatabase.searchTable} WHERE id = ?;',
+            variables: [Variable<String>('1')],
+          )
+          .get();
+      expect(rows, isEmpty);
+    });
+
+    test('a deleted sticker is removed from its pack', () async {
+      // stickerIds is a JSON list, so this cannot be a foreign key — nothing
+      // cleans it up unless the store does. A stale id makes the pack export a
+      // sticker that no longer exists.
+      await store.saveSticker(sampleSticker(id: '1'));
+      await store.saveSticker(sampleSticker(id: '2'));
+      await store.savePack(samplePack().copyWith(stickerIds: ['1', '2']));
+
+      await store.deleteSticker('1');
+
+      expect((await store.getPack('pack-1'))!.stickerIds, ['2']);
+    });
+
+    test('deleting a sticker that is not there is not an error', () async {
+      // Two taps on Delete, or a stale screen. Neither deserves a crash.
+      await expectLater(store.deleteSticker('ghost'), completes);
+    });
+
+    test('deleting a pack KEEPS its stickers', () async {
+      // The user grouped these; they did not create them here. Losing the
+      // originals to a tidy-up would be unrecoverable.
+      await store.saveSticker(sampleSticker(id: '1'));
+      await store.savePack(samplePack().copyWith(stickerIds: ['1']));
+
+      await store.deletePack('pack-1');
+
+      expect(await store.getPack('pack-1'), isNull);
+      expect(await store.getSticker('1'), isNotNull);
+    });
+
+    test('deleting a pack clears its stickers\' back-reference', () async {
+      // Otherwise they keep claiming membership of a pack that no longer
+      // exists, and show as already-filed forever.
+      await store.saveSticker(sampleSticker(id: '1')); // packId: 'pack-1'
+      await store.savePack(samplePack().copyWith(stickerIds: ['1']));
+
+      await store.deletePack('pack-1');
+
+      expect((await store.getSticker('1'))!.packId, isNull);
     });
   });
 

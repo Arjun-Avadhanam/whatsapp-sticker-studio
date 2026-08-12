@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../app/dependencies.dart';
 import '../models/pack_record.dart';
+import 'confirm_delete.dart';
 import 'export_pack_action.dart';
 
 /// The packs you have built, and the way to send each one to WhatsApp.
@@ -36,6 +37,27 @@ class _PacksScreenState extends State<PacksScreen> {
     if (mounted) setState(() => _packs = packs);
   }
 
+  /// Deletes the pack — after asking, and saying what survives.
+  ///
+  /// The message names the sticker survival explicitly. "Delete pack" reads as
+  /// though it takes the stickers with it, and a user who believes that will
+  /// either avoid the button or be alarmed after using it.
+  Future<void> _delete(PackRecord pack) async {
+    final confirmed = await confirmDelete(
+      context: context,
+      title: 'Delete "${pack.name}"?',
+      message:
+          'The pack will be removed. Your ${stickerCount(pack)} will stay in '
+          'your library.\n\n'
+          'If you already added this pack to WhatsApp, it stays there — remove '
+          'it from WhatsApp\'s sticker manager as well.',
+    );
+    if (!confirmed || !mounted) return;
+
+    await widget.dependencies.store.deletePack(pack.id);
+    if (mounted) await _load();
+  }
+
   Future<void> _export(PackRecord pack) async {
     await confirmAndExportPack(
       context: context,
@@ -61,8 +83,11 @@ class _PacksScreenState extends State<PacksScreen> {
       key: const Key('packs-list'),
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: packs.length,
-      itemBuilder: (_, i) =>
-          PackTile(pack: packs[i], onExport: () => _export(packs[i])),
+      itemBuilder: (_, i) => PackTile(
+        pack: packs[i],
+        onExport: () => _export(packs[i]),
+        onDelete: () => _delete(packs[i]),
+      ),
     );
   }
 }
@@ -72,10 +97,16 @@ class _PacksScreenState extends State<PacksScreen> {
 /// Public so widget tests can assert on order by reading the built tiles rather
 /// than inferring it from paint positions.
 class PackTile extends StatelessWidget {
-  const PackTile({super.key, required this.pack, required this.onExport});
+  const PackTile({
+    super.key,
+    required this.pack,
+    required this.onExport,
+    required this.onDelete,
+  });
 
   final PackRecord pack;
   final VoidCallback onExport;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -98,10 +129,21 @@ class PackTile extends StatelessWidget {
       // user never chose and cannot act on, and surfacing it would edge toward
       // exposing the promotion rule this design exists to keep invisible.
       subtitle: Text(ready ? stickerCount(pack) : shortfallLabel(pack)),
-      trailing: FilledButton.tonal(
-        key: Key('export-${pack.id}'),
-        onPressed: ready ? onExport : null,
-        child: const Text('Add to WhatsApp'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FilledButton.tonal(
+            key: Key('export-${pack.id}'),
+            onPressed: ready ? onExport : null,
+            child: const Text('Add to WhatsApp'),
+          ),
+          IconButton(
+            key: Key('delete-${pack.id}'),
+            onPressed: onDelete,
+            tooltip: 'Delete pack',
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ],
       ),
     );
   }

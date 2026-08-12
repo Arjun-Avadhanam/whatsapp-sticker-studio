@@ -270,6 +270,67 @@ void main() {
     });
   });
 
+  group('deleting', () {
+    /// Taps a button **inside the confirm dialog**.
+    ///
+    /// Scoped, because the sheet underneath has its own Cancel and its own
+    /// Delete — an unscoped `find.text('Cancel')` matches both and the tap is
+    /// ambiguous.
+    Future<void> tapInDialog(WidgetTester tester, String label) async {
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('confirm-delete')),
+          matching: find.text(label),
+        ),
+      );
+      await settle(tester);
+    }
+
+    testWidgets('asks first, and deletes nothing if cancelled', (tester) async {
+      // Deletion is permanent — no bin, no undo, no cloud copy — so it must
+      // never be one stray tap away.
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await tester.tap(find.byKey(const Key('delete-sticker')));
+      await settle(tester);
+      expect(find.byKey(const Key('confirm-delete')), findsOneWidget);
+
+      await tapInDialog(tester, 'Cancel');
+
+      expect(await deps.store.getSticker(sticker.id), isNotNull);
+      expect(File(sticker.filePath).existsSync(), isTrue);
+    });
+
+    testWidgets('confirming removes the record AND the file', (tester) async {
+      // A "delete" that leaves the bytes on disk is not what the word means,
+      // and orphaned WebPs grow storage with data nothing can reach again.
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await tester.tap(find.byKey(const Key('delete-sticker')));
+      await settle(tester);
+      await tapInDialog(tester, 'Delete');
+
+      expect(await deps.store.getSticker(sticker.id), isNull);
+      expect(File(sticker.filePath).existsSync(), isFalse);
+      expect(result!.deleted, isTrue);
+    });
+
+    testWidgets('a deleted sticker is no longer findable', (tester) async {
+      final sticker = await saveSticker(manualName: 'penguin');
+      expect(await deps.search.query('penguin'), isNotEmpty);
+
+      await open(tester, sticker);
+      await tester.tap(find.byKey(const Key('delete-sticker')));
+      await settle(tester);
+      await tapInDialog(tester, 'Delete');
+
+      // An orphaned index row would surface a hit that opens nothing.
+      expect(await deps.search.query('penguin'), isEmpty);
+    });
+  });
+
   testWidgets('the fields stay visible above the keyboard', (tester) async {
     // Same trap as the Add-to-pack sheet: a bottom sheet is anchored to the
     // bottom of the screen and Flutter does not lift it for the keyboard the way

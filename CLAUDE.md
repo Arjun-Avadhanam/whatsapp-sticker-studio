@@ -137,6 +137,43 @@ what promotion depends on, and a 1-frame file is rejected by WhatsApp like a sta
 device. Promotion loses nothing by using the plain encoder: two frames of a still are tiny against
 the 500 KB budget.
 
+## ☠️ RUNNING `flutter test integration_test` DESTROYS THE APP'S DATA ON THE DEVICE
+
+**`flutter test` uninstalls the app when a run ends, and an Android uninstall wipes `/data/data`** —
+the drift database, every encoded WebP, every staged pack. Not a crash, not a bug: the normal end of
+a normal test run.
+
+**This actually happened, 2026-08-13.** A semantic-search probe was run against a device holding a
+real sticker library built over two sessions. The library was unrecoverable. There is no bin, no undo
+and no cloud copy; only the original photos in the gallery survived, so the stickers had to be remade.
+
+**Back up first. Every time.** Before any `integration_test` run on a device with data worth keeping:
+
+```bash
+APP=com.arjun.whatsapp_sticker_studio
+
+# BACK UP (run-as starts in the app's data dir, so the path is relative)
+adb exec-out run-as $APP tar cf - files > backup.tar
+
+# ... run the device tests, which uninstall and reinstall the app ...
+
+# RESTORE — push first, then untar ON the device
+adb push backup.tar /data/local/tmp/backup.tar
+adb shell "run-as $APP tar xf /data/local/tmp/backup.tar -C /data/data/$APP"
+```
+
+**Restore must be push-then-untar.** `adb exec-out ... tar xf -  < backup.tar` **hangs**: `exec-out`
+captures stdout and does not forward stdin, so tar waits forever on an archive that never arrives.
+Verified working 2026-08-13 by deleting a marker file and restoring it.
+
+Restore only works after the app is reinstalled (the uninstall removes the uid's directory), and the
+app must be **debuggable** for `run-as` — true for the debug APK, not for release. Note `run-as`
+starts *in* `/data/data/$APP`, so `files/...` paths are relative and `-C` is unnecessary on backup.
+
+**Better still, order the work so it cannot bite:** run device *probes* on an empty or disposable
+library, and do interactive walkthroughs — the ones that populate real data — **afterwards**. A probe
+is cheap to repeat; a hand-built library is not.
+
 **Testing the encoders (learned the slow way):**
 - Keep the phone awake: `adb shell svc power stayon usb`. A locking screen suspends the test app.
 - **Clear stale adb forwards before every device-test run:**

@@ -182,6 +182,34 @@ is cheap to repeat; a hand-built library is not.
   host↔device handshake then intermittently fails: the app launches, sits in the foreground doing
   nothing, and `flutter test` waits forever with no output. Diagnosed 2026-07-29 after it silently
   ate most of a session. Check with `adb forward --list`.
+- **☠️ A STALLED INSTALL IS A WEDGED usbipd LINK. Re-attach it — do not wait, do not poke adb.**
+  Diagnosed properly 2026-08-13, and this supersedes the "keep polling / just wait it out" folklore
+  below.
+  - **Symptom:** `adb install` (or `flutter test`'s install step) sits for 10+ minutes, while
+    `adb devices`, `adb shell df` and `pm list packages` all answer **instantly**. The control path is
+    healthy; only the bulk transfer is dead.
+  - **The decisive check takes ten seconds** — sample the adb server's I/O counters twice:
+    ```bash
+    sp=$(pgrep -f "adb -L tcp:5037 fork-server"); grep rchar /proc/$sp/io; sleep 10; grep rchar /proc/$sp/io
+    ```
+    **Frozen `rchar` = hung, not slow.** Measured: it stopped at ~51 MB and ~52 MB on two consecutive
+    attempts — the same point twice, which is what ruled out "it is just slow".
+  - **The fix is to re-attach**, then restart the adb server:
+    ```bash
+    "/mnt/c/Program Files/usbipd-win/usbipd.exe" attach --wsl --busid 2-4
+    adb kill-server && adb devices
+    ```
+    On a freshly attached link, **343 MB installed in 14 seconds** (~25 MB/s). The wedges happened on
+    a link that had been up for hours and had already dropped the device once.
+  - **Payload size is NOT the cause.** The successful 14 s install was the *larger* APK (343 MB) and
+    the wedged ones were 285 MB. A plausible-sounding theory — that 111 MB of unusable `x86_64` +
+    `armeabi-v7a` native libs were the problem — was falsified by that single run.
+  - **`ndk { abiFilters }` in `buildTypes.debug` does NOT filter anything.** Tried 2026-08-13:
+    Flutter's Gradle plugin owns ABI selection, so `+=` merely adds to a set it has already fully
+    populated, and the APK came out *bigger*. If a per-ABI debug build is ever genuinely needed, use
+    `flutter build apk --debug --target-platform android-arm64` — but note `flutter test
+    integration_test` builds its own APK and has no such flag.
+
 - **Installs stall for minutes at a time, and NOTHING reliably unsticks them except killing the run
   and retrying.** Measured, including a failed hypothesis worth not re-testing:
   - *2026-08-04:* an install sat 9.5 min with no adb contact; `adb devices` (a host-side query that
@@ -192,10 +220,14 @@ is cheap to repeat; a hand-built library is not.
     effect after 3.5 min) and then with `pm list packages` + `pidof` + `df` (no effect), while adb
     itself answered instantly — 441 packages listed, `df` immediate — and the package remained
     uninstalled.
-  - **Net: 2 correlational hits, 2 clean misses — i.e. coincidence.** With installs varying from
-    ~10 s to 15+ min, any poll during a long install is *guaranteed* to be followed eventually by a
-    start, which is what made the original observation look causal. **Do not spend time poking adb.**
-    If an install is wedged past ~10 min, kill the run and re-launch.
+  - *2026-08-13:* **the first properly controlled test, and a clean miss.** Zero adb contact for
+    9m11s, then a single poke at a recorded time; 63 s later nothing had changed and the install was
+    still frozen. **Net: 2 correlational hits, 3 clean misses, and the only rigorous attempt is a
+    miss.**
+  - **There is now a mechanical reason it cannot work:** the install holds its own live adb stream,
+    so there is no dead connection for a poll to revive — which is exactly why control commands keep
+    answering while the transfer is dead. **Do not poke adb.** Check the I/O counters and re-attach
+    usbipd (see above).
 - **Device-test overhead is per FILE, and it dominates.** `flutter test integration_test -d <id>`
   does **not** amortize the build across files — Flutter reruns `assembleDebug` **and reinstalls the
   APK for every test file**. Measured 2026-07-29: a 13-test run took **~17 min wall-clock of which

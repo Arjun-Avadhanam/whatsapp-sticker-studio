@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'suites/animated_encoder_suite.dart';
+import 'suites/end_to_end_suite.dart';
 import 'suites/export_suite.dart';
 import 'suites/ffmpeg_webp_probe_suite.dart';
 import 'suites/native_webp_encoder_suite.dart';
@@ -33,4 +34,8 @@ void main() {
   group('export staging', exportTests);
   group('semantic search (real model)', semanticTests);
   group('tagger (real ML Kit)', taggerTests);
+
+  // Last, deliberately: it composes everything above, so a failure here after
+  // the others pass points at a seam between layers rather than at a layer.
+  group('end to end (Task 15)', endToEndTests);
 }

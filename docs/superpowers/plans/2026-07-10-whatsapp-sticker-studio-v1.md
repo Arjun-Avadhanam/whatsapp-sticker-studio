@@ -1350,12 +1350,39 @@ abstract class SharingService {
 - Consumes: everything above.
 - Produces: the shipped app entrypoint.
 
-- [ ] **Step 1: Write failing integration test** — full loop on an emulator: create sticker from a bundled image → it appears in the Library → search finds it by an auto-tag → share increments `usageCount`.
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Wire dependencies** in `main.dart` (concrete implementations injected; Maker + Library tabs).
-- [ ] **Step 4: Run the integration test on emulator → PASS.**
-- [ ] **Step 5: Run the full suite** — `flutter test` and `flutter test integration_test` → all green.
-- [ ] **Step 6: Commit & push** on `feat/e2e`; open a PR to `main`.
+- [x] **Step 1: Write failing integration test** — full loop: create sticker from a bundled image → it appears in the Library → search finds it → pack → stage.
+
+  > **⚠️ FOUR CORRECTIONS, applied 2026-08-13.**
+  >
+  > **(a) No new `*_test.dart`.** It is `integration_test/suites/end_to_end_suite.dart`, registered in
+  > the single `device_test.dart` entry point. Flutter rebuilds **and reinstalls the APK per test
+  > file** — that is what once turned 2 minutes of testing into 17.
+  >
+  > **(b) Step 3 was already done** in Task 13's composition root, which now carries three tabs.
+  >
+  > **(c) The share step cannot be automated.** Real sharing opens the **OS share sheet** and blocks
+  > on a human, which would hang the suite. `usageCount` behaviour is already device-verified from
+  > Task 12. The suite therefore covers the loop up to staging, and the export intent stays in
+  > `interactive_test.dart`.
+  >
+  > **(d) Run it on a REAL DEVICE, not an emulator** — the encoders, ML Kit and the ContentProvider
+  > are all platform-native.
+
+- [x] **Step 2: Run → FAIL.**
+- [x] **Step 3: Wire dependencies** in `main.dart` — done in Task 13. Task 15 additionally **wired
+  share-in**, which had been built in Task 7 and never connected to any screen.
+- [x] **Step 4: Run on device → PASS.** 23 device tests in 1m45s. Proved on hardware: a 4.9 KB
+  compliant sticker, real ML Kit tags, a name reaching FTS5 and being found, **gibberish matching
+  nothing** (the guard for semantic search staying off), a generated tray icon, a manifest staged
+  where the ContentProvider reads it, and **promotion producing 2 frames through real ffmpeg**.
+- [x] **Step 5: Run the full suite** — 304 Flutter tests, 23 device tests, `dart format` and
+  `flutter analyze` clean, debug APK builds.
+- [x] **Step 6: Commit & push** on `feat/e2e`.
+- [ ] **Step 7: MANUAL — a real end-to-end share.** Share a photo from the gallery into the app and
+  confirm the Maker shows it. Cannot be automated (`flutter test` uninstalls the app; a real share
+  launches `MainActivity` into the *sharing* app's task and Flutter engine). An `adb` probe proved the
+  Dart side receives a cold `ACTION_SEND` and found a crash on unreadable files — but a genuine share
+  sheet grant is the one thing only a person can produce.
 
 ---
 

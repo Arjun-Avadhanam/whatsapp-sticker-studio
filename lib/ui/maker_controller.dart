@@ -63,7 +63,15 @@ class MakerController extends ChangeNotifier {
   Future<void> pickFrom(Source source) async {
     final picked = await source.pick();
     if (picked == null) return;
+    await loadMedia(picked);
+  }
 
+  /// Loads media the screen already has in hand.
+  ///
+  /// Split out of [pickFrom] for **share-in**, which is push rather than pull:
+  /// the OS hands us a file when the user shares into the app, so there is no
+  /// picker to call and requiring a `Source` wrapper would be ceremony.
+  Future<void> loadMedia(MediaHandle picked) async {
     _media = picked;
     _params = const EncodeParams();
     _preview = null;

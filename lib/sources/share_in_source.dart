@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
@@ -68,7 +69,18 @@ class ShareInSource implements Source {
       final source = File(file.path);
       if (!source.existsSync()) continue;
 
-      final bytes = await source.readAsBytes();
+      // The read is guarded, not just the existence check. Existing and
+      // *readable* are different things: a share can hand over a path this
+      // process has no permission to open, and device testing 2026-08-13 showed
+      // that throwing here escapes as an **unhandled exception** — the app dies
+      // on a share instead of quietly moving to the next file, which is exactly
+      // what "first usable" is supposed to mean.
+      final Uint8List bytes;
+      try {
+        bytes = await source.readAsBytes();
+      } on FileSystemException {
+        continue;
+      }
       if (bytes.isEmpty) continue;
 
       return MediaHandle(bytes: bytes, kind: kind, mimeType: file.mimeType);

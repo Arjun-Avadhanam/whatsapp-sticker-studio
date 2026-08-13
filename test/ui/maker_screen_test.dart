@@ -105,6 +105,28 @@ void main() {
     await tester.pump();
   }
 
+  /// Alternates real-event-loop windows with pumped frames until [done] holds.
+  ///
+  /// A fixed delay is fragile for anything reaching **disk** — saving a sticker,
+  /// writing a tray icon. Under full-suite load a 300 ms window is not always
+  /// enough, and this test flaked exactly that way while passing in isolation.
+  /// Waiting on the condition removes the race without slowing the fast case.
+  Future<void> settleUntil(
+    WidgetTester tester,
+    bool Function() done, {
+    int tries = 25,
+  }) async {
+    for (var i = 0; i < tries && !done(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  bool present(Key key) => find.byKey(key).evaluate().isNotEmpty;
+
   testWidgets('starts empty and prompts for media', (tester) async {
     await pump(tester, source: FakeSource(image()));
 
@@ -323,10 +345,9 @@ void main() {
     await tester.enterText(find.byKey(const Key('pack-name')), 'Road trip');
     await tester.runAsync(() async {
       await tester.tap(find.text('Create'));
-      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     });
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
+    await settleUntil(tester, () => present(const Key('export-card')));
     await scrollToBottom(tester);
 
     expect(find.byKey(const Key('export-card')), findsOneWidget);

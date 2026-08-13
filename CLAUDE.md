@@ -815,6 +815,28 @@ Device-verified 2026-08-01: every gallery and camera pick returned `mimeType: (n
 `MediaKindResolver`'s extension branch is what actually resolves the kind. A mime-first-only resolver
 would return `null` for every pick and nothing would work. Do not "simplify" that fallback away.
 
+**Share-in is WIRED IN as of Task 15 (2026-08-13) — it was built in Task 7 and never connected.**
+`ShareInSource` existed and was tested but no screen used it, so sharing a photo into the app launched
+it and did nothing. It now lives on **`HomeScreen`**, not `MakerScreen`, because a share can arrive
+while the user is on any tab and has to bring them to the Maker — which needs the `TabController`.
+`HomeScreen` therefore owns the `MakerController` too, and `MakerController.loadMedia` exists so media
+the screen already holds needs no `Source` wrapper.
+
+**BUG found by probing it on device, now fixed: an unreadable shared file crashed the app.**
+`_firstUsable` checked `existsSync()` but not the read, so a path the process cannot open threw
+`PathAccessException` as an **unhandled exception** out of `HomeScreen`. Existing and *readable* are
+different things; the read is now guarded and the file skipped, which is what "first usable" always
+meant. A unit test reproduces the exact device failure without the guard. `ShareInSource` had **no
+unit tests at all** before this — 10 now.
+
+**What is proven, and what is still not.** A cold `ACTION_SEND` fired with `adb shell am start` does
+reach the Dart side: the probe showed `ShareInSource.pick()` running with a real path pulled out of
+the intent. **Still unproven: an end-to-end share from a real app** (gallery → share sheet → Maker
+shows the image). A `content://` probe produced no media *and no error*, which could equally be an
+artifact of `am start` not granting a URI the way a real share sheet does, or a genuine gap in the
+plugin's content-URI handling. Distinguishing them needs a real share, i.e. a human tap — see below
+for why that cannot be automated.
+
 **Share-in cannot be verified from `integration_test` — don't try, and don't treat its failure as a
 code bug.** Established on device 2026-08-01 after two misdiagnosed runs:
 - `flutter test` **uninstalls the app when a run ends**, and Android **caches recent share targets**,

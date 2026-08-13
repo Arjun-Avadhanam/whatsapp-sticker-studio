@@ -23,6 +23,12 @@ import 'package:whatsapp_sticker_studio/tagger/tagging_orchestrator.dart';
 import 'package:whatsapp_sticker_studio/tagger/tagging_service.dart';
 
 /// Returns canned bytes without touching a platform channel.
+///
+/// The bytes are a **real, decodable image** rather than filler. Anything that
+/// renders encoder output — the Maker preview, the Library grid — puts it
+/// through `Image.memory`, which throws while painting on junk bytes. A fake
+/// that produces something undecodable makes those widgets fail for a reason the
+/// app would never have.
 class FakeWebpEncoder implements WebpEncoder {
   @override
   Future<WebpEncodeResult> encode(
@@ -30,10 +36,7 @@ class FakeWebpEncoder implements WebpEncoder {
     required int width,
     required int height,
     required int maxBytes,
-  }) async => WebpEncodeResult(
-    bytes: Uint8List.fromList(List.filled(1024, 7)),
-    quality: 90,
-  );
+  }) async => WebpEncodeResult(bytes: onePixelPng(), quality: 90);
 }
 
 class FakeTagger implements TaggingService {
@@ -194,8 +197,12 @@ Future<AppDependencies> testDependencies({
 }
 
 /// A still image the fake encoder can be handed.
+///
+/// **A real PNG**, because `StaticEncoder` genuinely decodes its input before
+/// handing pixels to the WebP encoder. Filler bytes fail there with "could not
+/// decode the image", which looks like a logic bug and is not one.
 MediaHandle fakeImage() => MediaHandle(
-  bytes: Uint8List.fromList(List.filled(64, 1)),
+  bytes: onePixelPng(),
   kind: MediaKind.image,
   mimeType: 'image/png',
 );

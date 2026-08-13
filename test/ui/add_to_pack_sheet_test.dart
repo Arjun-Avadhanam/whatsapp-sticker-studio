@@ -101,6 +101,27 @@ void main() {
     await settle(tester);
   }
 
+  /// Alternates real-event-loop windows with pumped frames until [done] holds.
+  ///
+  /// A fixed delay is fragile here: this work reaches **disk** (tray-icon encode
+  /// and write), and under full-suite load a 200 ms window is not always enough —
+  /// the new-pack test flaked exactly that way while passing in isolation.
+  /// Waiting on the condition instead of on the clock removes the race without
+  /// making the fast case slower.
+  Future<void> settleUntil(
+    WidgetTester tester,
+    bool Function() done, {
+    int tries = 25,
+  }) async {
+    for (var i = 0; i < tries && !done(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
   /// Taps a pack in the sheet. The tap is inside [real] because the add reaches
   /// disk — tray icons and, when a pack flips kind, promotion.
   Future<void> tapPack(WidgetTester tester, String name) async {
@@ -173,9 +194,9 @@ void main() {
     // only completes if it STARTS on the real event loop.
     await real(tester, () async {
       await tester.tap(find.text('Create'));
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
     });
-    await settle(tester);
+    await settleUntil(tester, () => returned != null);
 
     expect(returned, isNotNull);
     expect(returned!.name, 'Road trip');

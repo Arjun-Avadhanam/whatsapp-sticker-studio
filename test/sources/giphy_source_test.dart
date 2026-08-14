@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/sources/giphy_client.dart';
 import 'package:whatsapp_sticker_studio/sources/giphy_source.dart';
+import 'package:whatsapp_sticker_studio/sources/source.dart';
 
 final gif = GiphyGif(
   id: 'id0',
@@ -31,8 +32,45 @@ void main() {
     expect(handle.mimeType, 'video/mp4');
   });
 
-  test('a failed download returns null rather than throwing', () async {
-    final mock = MockClient((req) async => http.Response('nope', 404));
-    expect(await GiphySource(gif, mock).pick(), isNull);
+  group('failures are reported, never silent', () {
+    // Returning null used to be the answer, and the Maker reads null as "the
+    // user cancelled" — so a dead connection or a dropped CDN response left the
+    // screen inert with no explanation. Same bug as the X-link source had.
+
+    test('a refused download says so, and suggests another gif', () async {
+      final mock = MockClient((req) async => http.Response('nope', 404));
+
+      await expectLater(
+        GiphySource(gif, mock).pick(),
+        throwsA(
+          isA<SourceException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('404'), contains('Try another')),
+          ),
+        ),
+      );
+    });
+
+    test('a network error reads as a connection problem', () async {
+      final mock = MockClient((req) async => throw const _Offline());
+
+      await expectLater(
+        GiphySource(gif, mock).pick(),
+        throwsA(
+          isA<SourceException>().having(
+            (e) => e.message,
+            'message',
+            contains('connection'),
+          ),
+        ),
+      );
+    });
   });
+}
+
+/// Stands in for a socket failure without depending on `dart:io`'s exact type —
+/// the source catches anything, which is the behaviour under test.
+class _Offline implements Exception {
+  const _Offline();
 }

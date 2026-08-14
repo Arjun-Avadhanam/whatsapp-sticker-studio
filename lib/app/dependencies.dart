@@ -22,6 +22,7 @@ import '../packs/pack_service.dart';
 import '../search/search_service.dart';
 import '../sharing/sharing_service.dart';
 import '../sources/extraction_client.dart';
+import '../sources/giphy_client.dart';
 import '../tagger/mlkit_tagger.dart';
 import '../tagger/tagging_orchestrator.dart';
 import '../tagger/tagging_service.dart';
@@ -50,6 +51,7 @@ class AppDependencies {
     required this.sharing,
     required this.stickerDirectory,
     this.extraction,
+    this.giphy,
     http.Client? httpClient,
   }) : httpClient = httpClient ?? http.Client();
 
@@ -102,6 +104,21 @@ class AppDependencies {
   /// Not a checked-in constant because it changes with the deploy target, and
   /// not a runtime setting because a user has no way to know one.
   static const extractorBaseUrl = String.fromEnvironment('EXTRACTOR_BASE_URL');
+
+  /// Searches Giphy, or **null when no API key was supplied** — in which case
+  /// the Maker hides the GIF button, exactly as it does for [extraction].
+  final GiphyClient? giphy;
+
+  /// The Giphy API key, supplied at build time:
+  ///
+  /// ```
+  /// flutter build apk --dart-define=GIPHY_API_KEY=$(cat giphy_api_key.txt)
+  /// ```
+  ///
+  /// **Never checked in.** `giphy_api_key.txt` is gitignored and holds the key
+  /// for local builds; a real credential in the repository is one `git add`
+  /// away from being published.
+  static const giphyApiKey = String.fromEnvironment('GIPHY_API_KEY');
 
   /// Builds the real implementations. Device-only: the encoders, tagger and
   /// embedder all reach across platform channels.
@@ -201,6 +218,11 @@ class AppDependencies {
       extraction: extractorBaseUrl.isEmpty
           ? null
           : ExtractionClient(httpClient, Uri.parse(extractorBaseUrl)),
+      // Same rule as the extractor: no key, no button. A build that cannot
+      // search should not offer a search.
+      giphy: giphyApiKey.isEmpty
+          ? null
+          : GiphyClient(httpClient, apiKey: giphyApiKey),
       httpClient: httpClient,
     );
   }

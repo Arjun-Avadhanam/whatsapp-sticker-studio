@@ -553,20 +553,29 @@ FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail
 **resolves** the tweet's mp4 URL (`skip_download`); the app downloads the bytes. Server-side so a
 Twitter-format break is fixed by upgrading yt-dlp, not shipping a new app build.
 
-**Live-test findings (2026-07-25, local run, real unmocked yt-dlp):**
-- Service runs end-to-end; error path surfaces yt-dlp's real messages as 422. ✅
-- **This environment reaches Twitter** — yt-dlp's `[twitter]` extractor ran and returned
-  tweet-specific responses (`No video could be found in this tweet`), i.e. **not** IP-blocked at the
-  network level. ✅
-- **Success path (200 + real `mp4_url`) NOT yet confirmed** — the tweets tried had no extractable
-  video (IDs were guessed). Needs a **known-video tweet URL** to confirm.
+**✅ SUCCESS PATH CONFIRMED 2026-08-14 — the last open question here is closed.**
+Run against a real video-bearing tweet supplied by the user
+(`https://x.com/i/status/2087646138526802000`) with **yt-dlp 2026.07.04**, unmocked:
 
-**TODO next session (needs a real video-bearing tweet URL, ideally from the user):**
-- Run `POST /extract` with a tweet that definitely has video → confirm a real `mp4_url` comes back.
-- If Twitter auth-gates video from a datacenter IP, the deploy target may need yt-dlp **cookies**.
-- After a confirmed success, **pin the working yt-dlp version** in `requirements.txt` (currently a
-  floor `>=`, deliberately kept updatable).
+- `resolve_info` returned one mp4 format and `pick_mp4` selected
+  `https://video.twimg.com/tweet_video/HPjPGOLaQAAFo8i.mp4`. ✅
+- Those bytes really download: **HTTP 200, 101 004 bytes, `video/mp4`**, box structure
+  `[ftyp, moov, mdat]` with an **`avc1`** sample entry and **no audio track**. ✅
+- **No cookies and no auth were needed** from this IP. The feared "Twitter auth-gates video from a
+  datacenter IP" case did *not* occur here — but this is a residential WSL host, so it is **not**
+  evidence about a PaaS IP. Re-check after deploying; cookies remain the contingency.
+- **`tweet_video/` is Twitter's GIF path** — Twitter serves animated GIFs as silent H.264 mp4s.
+  That is the ideal sticker input, and our ffmpeg decodes H.264 with its built-in decoder.
+- **yt-dlp is now PINNED** to the verified `==2026.7.4`. Bumping it is the fix for a format break.
+
+**Only ONE format came back** (`height: None`), because a GIF has a single variant. The
+multi-variant path in `pick_mp4` (`max` by height) is therefore **still unexercised on real data** —
+a genuine *video* tweet returns several mp4 renditions plus HLS. Low risk, but unproven.
+
+**TODO — deployment is the remaining blocker, and it is a decision, not a task:**
 - **Choose a deploy target** (free PaaS / small VPS) and record the base URL the app points at.
+  Until then the app reads `EXTRACTOR_BASE_URL` from `--dart-define` and hides the source when unset.
+- Confirm extraction still works **from the deploy IP** — see the cookies caveat above.
 
 To run locally: `pip install -r services/extractor/requirements.txt` then
 `uvicorn main:app` from `services/extractor/`.

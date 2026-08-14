@@ -2,6 +2,28 @@
     <!-- The INTERNET permission is required for development. Specifically,
          the Flutter tool needs it to communicate with the running application
          to allow setting breakpoints, to provide hot reload, etc.
+
+         NOTE: the app itself also needs INTERNET at runtime (the X-link
+         extractor and Giphy), and that declaration lives in the MAIN manifest.
+         Do not assume this one covers it; it does not apply to release.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Debug-only cleartext, so the extractor service can be tested against a
+         copy running on the dev machine before it is deployed anywhere. Run
+         uvicorn in services/extractor, map the port with
+         "adb reverse tcp:8000 tcp:8000", then launch with the dart-define
+         EXTRACTOR_BASE_URL set to http://localhost:8000 (the recipe is spelled
+         out in CLAUDE.md; it cannot be written here because an XML comment may
+         not contain a double hyphen).
+
+         adb reverse maps the phone's localhost:8000 to the host's, and Android
+         blocks cleartext HTTP by default from API 28 on, so without this the
+         request fails before it ever leaves the device.
+
+         Scoped to the debug build on purpose. A release app must not be able to
+         send anything in the clear, and putting usesCleartextTraffic in the
+         main manifest would allow exactly that.
+    -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

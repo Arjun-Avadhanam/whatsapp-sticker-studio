@@ -572,6 +572,24 @@ Run against a real video-bearing tweet supplied by the user
 multi-variant path in `pick_mp4` (`max` by height) is therefore **still unexercised on real data** —
 a genuine *video* tweet returns several mp4 renditions plus HLS. Low risk, but unproven.
 
+**Testing it on device WITHOUT deploying anything.** `adb reverse` points the phone's localhost at
+the dev machine, so a locally-run uvicorn is reachable from the app:
+
+```bash
+(cd services/extractor && uvicorn main:app)      # host, port 8000
+adb reverse tcp:8000 tcp:8000                     # phone localhost:8000 -> host
+flutter run --dart-define=EXTRACTOR_BASE_URL=http://localhost:8000
+```
+
+`android/app/src/debug/AndroidManifest.xml` sets `usesCleartextTraffic` for **debug only** —
+Android blocks cleartext HTTP from API 28, so without it the request fails before leaving the phone.
+Release must never carry that flag.
+
+**⚠️ `INTERNET` was in the DEBUG manifest only** (the Flutter scaffold puts it there for hot reload).
+Every debug build and every test worked, and a **release build would have had no network permission
+at all** — both remote sources failing only in release. Now declared in the main manifest. Fixed
+2026-08-14; nothing else in the app touches the network, which is why it went unnoticed.
+
 **TODO — deployment is the remaining blocker, and it is a decision, not a task:**
 - **Choose a deploy target** (free PaaS / small VPS) and record the base URL the app points at.
   Until then the app reads `EXTRACTOR_BASE_URL` from `--dart-define` and hides the source when unset.

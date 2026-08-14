@@ -829,13 +829,15 @@ different things; the read is now guarded and the file skipped, which is what "f
 meant. A unit test reproduces the exact device failure without the guard. `ShareInSource` had **no
 unit tests at all** before this — 10 now.
 
-**What is proven, and what is still not.** A cold `ACTION_SEND` fired with `adb shell am start` does
-reach the Dart side: the probe showed `ShareInSource.pick()` running with a real path pulled out of
-the intent. **Still unproven: an end-to-end share from a real app** (gallery → share sheet → Maker
-shows the image). A `content://` probe produced no media *and no error*, which could equally be an
-artifact of `am start` not granting a URI the way a real share sheet does, or a genuine gap in the
-plugin's content-URI handling. Distinguishing them needs a real share, i.e. a human tap — see below
-for why that cannot be automated.
+**✅ VERIFIED END TO END ON DEVICE 2026-08-14 — both paths.** A real gallery → share sheet →
+Sticker Studio share loads the photo straight into the Maker. **Cold** (app swiped away) opens on Make
+with the image already previewed; **warm** (app open on another tab) switches to Make by itself and
+loads it. This was the last unproven path in the project.
+
+It also settles an ambiguity from the automated probing: a `content://` URI fired with
+`adb shell am start` produced no media and no error, which looked like it might be a gap in the
+plugin's content-URI handling. It was **an artifact of the probe** — `am start` does not grant the URI
+the way a real share sheet does. Do not chase that; only a real share is a valid test.
 
 **Share-in cannot be verified from `integration_test` — don't try, and don't treat its failure as a
 code bug.** Established on device 2026-08-01 after two misdiagnosed runs:

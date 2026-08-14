@@ -1378,11 +1378,12 @@ abstract class SharingService {
 - [x] **Step 5: Run the full suite** — 304 Flutter tests, 23 device tests, `dart format` and
   `flutter analyze` clean, debug APK builds.
 - [x] **Step 6: Commit & push** on `feat/e2e`.
-- [ ] **Step 7: MANUAL — a real end-to-end share.** Share a photo from the gallery into the app and
-  confirm the Maker shows it. Cannot be automated (`flutter test` uninstalls the app; a real share
-  launches `MainActivity` into the *sharing* app's task and Flutter engine). An `adb` probe proved the
-  Dart side receives a cold `ACTION_SEND` and found a crash on unreadable files — but a genuine share
-  sheet grant is the one thing only a person can produce.
+- [x] **Step 7: MANUAL — a real end-to-end share. ✅ VERIFIED 2026-08-14, both paths.** Gallery →
+  share sheet → Sticker Studio loads the photo straight into the Maker: **cold** opens on Make with it
+  previewed, **warm** switches tabs by itself and loads it. Cannot be automated (`flutter test`
+  uninstalls the app; a real share launches `MainActivity` into the *sharing* app's task and Flutter
+  engine), and the `content://` probe that returned nothing was an artifact of `am start` rather than
+  a real gap — see `CLAUDE.md`.
 
 ---
 

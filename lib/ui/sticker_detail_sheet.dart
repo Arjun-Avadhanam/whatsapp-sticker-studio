@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../app/dependencies.dart';
+import '../core/whatsapp_spec.dart';
 import '../models/sticker_record.dart';
 import '../sharing/sharing_service.dart';
 import 'confirm_delete.dart';
@@ -77,6 +78,9 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
   /// Cancel genuinely discard rather than merely stop.
   late final List<String> _tags = [...widget.sticker.manualTags];
 
+  /// Likewise a copy. Max three, which is WhatsApp's limit.
+  late final List<String> _emojis = [...widget.sticker.emojis];
+
   bool _busy = false;
 
   @override
@@ -117,6 +121,7 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
       manualName: name.isEmpty ? null : name,
       manualTags: _tags,
       notes: notes.isEmpty ? null : notes,
+      emojis: _emojis,
     );
 
     if (mounted) {
@@ -219,6 +224,16 @@ class _StickerDetailSheetState extends State<_StickerDetailSheet> {
                   controller: _newTag,
                   onAdd: _addTag,
                   onRemove: (tag) => setState(() => _tags.remove(tag)),
+                ),
+                const SizedBox(height: 16),
+                _EmojiPicker(
+                  selected: _emojis,
+                  onToggle: (emoji) => setState(() {
+                    if (_emojis.remove(emoji)) return;
+                    if (_emojis.length < WhatsAppSpec.maxEmojisPerSticker) {
+                      _emojis.add(emoji);
+                    }
+                  }),
                 ),
                 if (widget.sticker.autoTags.isNotEmpty) ...[
                   const SizedBox(height: 16),
@@ -400,6 +415,286 @@ class _MyTags extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Emoji for **WhatsApp's** sticker search — the one thing here that works after
+/// the sticker leaves this app.
+///
+/// Everything else on this sheet (name, tags, notes) is indexed by *our* search
+/// and helps only inside the Library. But nobody sends stickers from the Library;
+/// they send them from a WhatsApp chat, and `emojis` is the only handle the tray
+/// gives them there.
+///
+/// A curated grid rather than a full emoji keyboard: three slots is a small
+/// decision, and a system keyboard would need "is this actually an emoji?"
+/// validation for a field with a hard three-item cap.
+/// The five Fitzpatrick modifiers, plus "as-is" for the default yellow.
+///
+/// Chosen once and applied to every tone-capable emoji, which is how system
+/// keyboards do it. Listing each hand in all six tones instead would turn nine
+/// emoji into fifty-four near-identical tiles.
+const _skinTones = <String, String>{
+  'default': '',
+  'light': '\u{1F3FB}',
+  'medium-light': '\u{1F3FC}',
+  'medium': '\u{1F3FD}',
+  'medium-dark': '\u{1F3FE}',
+  'dark': '\u{1F3FF}',
+};
+
+/// Applies [tone] to [base], or restores VS16 when there is no tone.
+///
+/// The variation selector cannot coexist with a modifier — `✌️\u{1F3FD}`
+/// is not a valid sequence and renders as a splodge — so the two are mutually
+/// exclusive.
+String applySkinTone(String base, String tone) {
+  if (tone.isEmpty) {
+    // ✌ and ☝ need VS16 to render as emoji rather than as monochrome glyphs.
+    return base.length == 1 ? '$base\u{FE0F}' : base;
+  }
+  return '$base$tone';
+}
+
+class _EmojiPicker extends StatefulWidget {
+  const _EmojiPicker({required this.selected, required this.onToggle});
+
+  final List<String> selected;
+  final ValueChanged<String> onToggle;
+
+  @override
+  State<_EmojiPicker> createState() => _EmojiPickerState();
+}
+
+class _EmojiPickerState extends State<_EmojiPicker> {
+  String _tone = '';
+  final _custom = TextEditingController();
+
+  @override
+  void dispose() {
+    _custom.dispose();
+    super.dispose();
+  }
+
+  List<String> get selected => widget.selected;
+  ValueChanged<String> get onToggle => widget.onToggle;
+
+  /// Skewed towards what people actually react with, rather than a balanced
+  /// sample of the Unicode blocks.
+  ///
+  /// A shortcut, **not a limit** — the field beside it accepts any emoji, so a
+  /// grid that cannot hold everything is fine.
+  static const _faces = [
+    '😂',
+    '😍',
+    '😭',
+    '😅',
+    '🥲',
+    '😎',
+    '🤔',
+    '🙄',
+    '😴',
+    '🤯',
+    '🥳',
+    '😳',
+    '💀',
+    '🔥',
+    '❤️',
+    '✨',
+  ];
+
+  /// Emoji that take a Fitzpatrick modifier.
+  ///
+  /// Kept separate because they are rendered in the user's chosen tone rather
+  /// than as-is. Listed **without** VS16 (U+FE0F): a variation selector sits
+  /// between the base and the modifier and breaks the sequence, so ✌ and ☝ are
+  /// bare here and only get VS16 when no tone is applied.
+  static const _hands = ['👍', '👏', '🙏', '🤙', '✌', '👌', '🤟', '✋', '👋'];
+
+  static const _things = [
+    '🎉',
+    '👀',
+    '💯',
+    '🚀',
+    '🐶',
+    '🐱',
+    '🍕',
+    '🍺',
+    '⚽',
+    '🎵',
+    '📸',
+    '💬',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final full = selected.length >= WhatsAppSpec.maxEmojisPerSticker;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Emoji for WhatsApp search',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const Spacer(),
+            Text(
+              '${selected.length}/${WhatsAppSpec.maxEmojisPerSticker}',
+              key: const Key('emoji-count'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        // Says where these are used, because it is not obvious that this field
+        // leaves the app at all.
+        Text(
+          'How you find this sticker inside WhatsApp.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+
+        // Anything already chosen shows first, so a custom emoji the grid does
+        // not contain is still visible and removable.
+        if (selected.isNotEmpty) ...[
+          Wrap(
+            spacing: 4,
+            children: [
+              for (final emoji in selected)
+                _EmojiChip(
+                  // Distinct from the grid's key: a chosen emoji appears in both
+                  // rows, and one key for two widgets makes every finder
+                  // ambiguous.
+                  key: Key('chosen-$emoji'),
+                  emoji: emoji,
+                  chosen: true,
+                  enabled: true,
+                  onTap: () => onToggle(emoji),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+
+        Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: [
+            for (final emoji in [
+              ..._faces,
+              ..._hands.map((h) => applySkinTone(h, _tone)),
+              ..._things,
+            ])
+              _EmojiChip(
+                emoji: emoji,
+                chosen: selected.contains(emoji),
+                // Disabled once full — but a *chosen* one stays tappable, or
+                // there would be no way to swap without clearing first.
+                enabled: !full || selected.contains(emoji),
+                onTap: () => onToggle(emoji),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Text('Skin tone', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(width: 8),
+            for (final entry in _skinTones.entries)
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: _EmojiChip(
+                  key: Key('tone-${entry.key}'),
+                  emoji: applySkinTone('✋', entry.value),
+                  chosen: _tone == entry.value,
+                  enabled: true,
+                  onTap: () => setState(() => _tone = entry.value),
+                  size: 32,
+                ),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: 8),
+        // The grid is a shortcut, not a ceiling: anything the user's own
+        // keyboard can produce is fair game, and a fixed list would otherwise
+        // decide for them which emoji exist.
+        TextField(
+          key: const Key('emoji-custom'),
+          controller: _custom,
+          enabled: !full,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: full ? 'Three is the maximum' : 'Or type any emoji',
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: full ? null : _addCustom,
+            ),
+          ),
+          onSubmitted: (_) => _addCustom(),
+        ),
+      ],
+    );
+  }
+
+  /// Takes the first character *cluster* the user typed.
+  ///
+  /// `characters` rather than `String`: an emoji is routinely several code units
+  /// — a base plus a modifier, or a ZWJ sequence — so slicing by index would
+  /// split it into halves that render as tofu.
+  void _addCustom() {
+    final typed = _custom.text.trim();
+    if (typed.isEmpty) return;
+    final first = typed.characters.first;
+    _custom.clear();
+    if (!selected.contains(first)) onToggle(first);
+  }
+}
+
+class _EmojiChip extends StatelessWidget {
+  const _EmojiChip({
+    super.key,
+    required this.emoji,
+    required this.chosen,
+    required this.enabled,
+    required this.onTap,
+    this.size = 40,
+  });
+
+  final String emoji;
+  final bool chosen;
+  final bool enabled;
+  final VoidCallback onTap;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      key: Key('emoji-$emoji'),
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Opacity(
+        opacity: enabled ? 1 : 0.35,
+        child: Container(
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: chosen ? scheme.primaryContainer : null,
+            border: Border.all(
+              color: chosen ? scheme.primary : scheme.outlineVariant,
+              width: chosen ? 2 : 1,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(emoji, style: const TextStyle(fontSize: 20)),
+        ),
+      ),
     );
   }
 }

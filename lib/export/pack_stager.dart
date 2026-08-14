@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../core/whatsapp_spec.dart';
 import '../models/pack_record.dart';
 import '../models/sticker_record.dart';
 
@@ -62,10 +63,13 @@ class PackStager {
       await File(sticker.filePath).copy(p.join(dir.path, fileName));
       entries.add(<String, Object?>{
         'image_file': fileName,
-        // Emojis are optional to WhatsApp (max 3) and we have none to offer yet
-        // — Task 13 can let the user pick them. They only affect searchability
-        // inside WhatsApp's tray, not validity.
-        'emojis': const <String>[],
+        // WhatsApp's own in-tray search matches against these, and it is the
+        // ONLY handle a user has once the pack has left our app — everything
+        // else we index (name, tags) only finds stickers inside the Library.
+        // Capped because WhatsApp accepts at most three.
+        'emojis': sticker.emojis
+            .take(WhatsAppSpec.maxEmojisPerSticker)
+            .toList(),
         'accessibility_text': _describe(sticker),
       });
     }

@@ -37,6 +37,7 @@ class StickerRecord {
     required this.manualName,
     required this.manualTags,
     required this.notes,
+    this.emojis = const [],
     required this.source,
     required this.createdAt,
     required this.usageCount,
@@ -60,6 +61,13 @@ class StickerRecord {
   final String? manualName;
   final List<String> manualTags;
   final String? notes;
+
+  /// Emoji exported to WhatsApp as the sticker's `emojis` field (max 3).
+  ///
+  /// Defaulted rather than required: every sticker made before this existed has
+  /// none, and forcing every construction site to say `emojis: const []` would
+  /// be noise.
+  final List<String> emojis;
 
   final StickerSource source;
   final DateTime createdAt;
@@ -121,6 +129,7 @@ class StickerRecord {
     Object? manualName = _unset,
     List<String>? manualTags,
     Object? notes = _unset,
+    List<String>? emojis,
     StickerSource? source,
     DateTime? createdAt,
     int? usageCount,
@@ -139,6 +148,7 @@ class StickerRecord {
           : manualName as String?,
       manualTags: manualTags ?? this.manualTags,
       notes: identical(notes, _unset) ? this.notes : notes as String?,
+      emojis: emojis ?? this.emojis,
       source: source ?? this.source,
       createdAt: createdAt ?? this.createdAt,
       usageCount: usageCount ?? this.usageCount,
@@ -163,6 +173,7 @@ class StickerRecord {
         other.manualName == manualName &&
         listEquals(other.manualTags, manualTags) &&
         other.notes == notes &&
+        listEquals(other.emojis, emojis) &&
         other.source == source &&
         other.createdAt == createdAt &&
         other.usageCount == usageCount &&
@@ -184,6 +195,7 @@ class StickerRecord {
     manualName,
     Object.hashAll(manualTags),
     notes,
+    Object.hashAll(emojis),
     source,
     createdAt,
     usageCount,

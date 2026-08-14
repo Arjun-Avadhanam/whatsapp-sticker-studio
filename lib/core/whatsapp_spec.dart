@@ -53,6 +53,13 @@ class WhatsAppSpec {
 
   static const int maxStickersPerPack = 30;
 
+  /// WhatsApp accepts at most this many emoji per sticker.
+  ///
+  /// They feed the sticker tray's own emoji search — the one signal that helps a
+  /// user find a sticker **inside WhatsApp**, where everything else we index
+  /// cannot reach.
+  static const int maxEmojisPerSticker = 3;
+
   /// Packs the app itself exposes to WhatsApp.
   static const int minPacks = 1;
   static const int maxPacks = 10;

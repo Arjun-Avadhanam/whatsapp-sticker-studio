@@ -42,6 +42,12 @@ void main() {
       'CREATE VIRTUAL TABLE ${AppDatabase.searchTable} '
       'USING fts5(id UNINDEXED, blob);',
     );
+    // The column has to go too, not just the version number. The seed database
+    // is created at the CURRENT schema, so it already has v5's `emojis` column;
+    // winding only `user_version` back would leave the v5 step trying to add a
+    // column that exists, which fails — and would look like a migration bug
+    // rather than a lying fixture.
+    await db.customStatement('ALTER TABLE stickers DROP COLUMN emojis;');
     await db.customStatement('PRAGMA user_version = 3;');
     await db.close();
   }

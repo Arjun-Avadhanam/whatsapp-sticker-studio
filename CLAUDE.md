@@ -603,6 +603,33 @@ is busy, try again in a few minutes" — do not invent a countdown, and do not a
 
 **Attribution is required by Giphy's API terms** — the picker must carry the "Powered by GIPHY" mark.
 
+**✅ DEVICE-VERIFIED END TO END 2026-08-14.** Search, trending, paging, pick, download, ffmpeg
+encode and Save all work on the A059P. The full chain from Giphy's mp4 to a saved sticker is closed.
+
+**Picker decisions (Task D.2/D.3):**
+- **A full route, not a bottom sheet.** It needs a keyboard, a scrolling grid and most of the screen,
+  and a sheet is not lifted for the keyboard — the same trap that hid the add-to-pack sheet on device.
+- **Opens on trending**, because an empty search screen asks the user to guess what the app is good
+  at before showing them anything.
+- **Debounce (300 ms) and the request-id guard are lifted from the Library** deliberately: two search
+  fields in one app that behave differently are worse than either choice alone. Here the debounce is
+  also a cost control, not just polish.
+- **`GIF` is a third button in the source row** (Gallery · Camera · GIF) — it is a *pick*, like the
+  other two. It could not join the `sources` map, though: the others hand off to the OS and come back
+  with media, while this one runs a whole search screen before there is a `Source` at all.
+- The download runs through `pickFrom`, so a Giphy pick inherits the same busy state and the same
+  self-clearing error banner as every other source, with no special casing downstream.
+
+**⚠️ Two tests here passed while asserting nothing — both worth recognising elsewhere:**
+- The staleness test passed with the request-id guard *removed*, twice. First the fake built its
+  response **after** the gate, so the "stale" reply carried fresh data. Then, once fixed, the
+  assertion still checked the *first* item — but a reset clears the list when the request **starts**,
+  so a late reply **appends** rather than replaces. Only "no stale item appears at all" catches it.
+- The paging test read **built widgets** as a proxy for loaded data. `GridView.builder` is lazy, so
+  that counts the viewport, not the list. Count requests and look up specific ids instead.
+- Both were found by deleting the guard and checking the test failed. Do that; it is the only thing
+  that distinguishes a real test from a decorative one.
+
 ## X/Twitter extractor service (`services/extractor/`)
 
 FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only

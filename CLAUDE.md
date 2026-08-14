@@ -621,6 +621,38 @@ at all** — both remote sources failing only in release. Now declared in the ma
 To run locally: `pip install -r services/extractor/requirements.txt` then
 `uvicorn main:app` from `services/extractor/`.
 
+## Post-v1 gaps — device-verified 2026-08-14 (A, B, C, F)
+
+Full walkthrough on the A059P against the build installed that day. **Everything passed.** What the
+run settled, beyond "it works":
+
+**HEIC makes a sticker on real hardware.** The ffmpeg fallback engages invisibly — the user-facing
+behaviour is indistinguishable from a JPEG, which was the whole design goal. Note the fixture came
+from libheif, not a camera (see the Sources section), so this proves the container and codec path.
+- **Gallery apps mostly surface `DCIM/Camera` only.** A fixture pushed to `Pictures/` is correctly
+  indexed by MediaStore and still effectively invisible. Push test images to
+  `/sdcard/DCIM/Camera/` and scan them with
+  `content call --uri content://media/external/file --method scan_file --arg <path>`.
+
+**X-post stickers work end to end**, including local link validation, extraction, the ffmpeg encode
+and Save. Emoji selection works, skin-tone variants included.
+
+**BUG found here and fixed: the source-error banner never went away.** A mistyped link left a red
+banner sitting on the Maker indefinitely, following the user into unrelated work.
+- **Source failures now self-clear after 5 s.** There is nothing to act on from that banner — the
+  remedy is always "try a different link" — so once read it is pure clutter.
+- **Encoder failures deliberately do NOT self-clear.** `EncoderBudgetException` says "try trimming it
+  shorter", which is an instruction to carry out *on that screen with the media still loaded*.
+  Retracting it mid-task would remove the only guidance that works. They clear on the next encode.
+- The lifetime is a constructor argument, because `fakeAsync` does not compose with the async test
+  bodies the controller tests already have, and waiting out five real seconds per test is a slow
+  suite for nothing. A widget test must **pump past the lifetime** or the fake-time zone reports
+  "A Timer is still pending even after the widget tree was disposed".
+
+**The launcher identity is real now** — `android:label="Sticker Studio"` plus a generated adaptive
+icon (`tool/make_app_icon.py`). Both are checked-in generated artefacts that nothing else tests, so
+`test/app/app_identity_test.dart` pins them; the failure is otherwise only visible on a home screen.
+
 ## Connecting the Android device (WSL2) — solved 2026-07-29, don't re-derive
 
 **A USB cable alone does nothing: WSL2 has no USB stack.** The phone attaches to the Windows kernel;

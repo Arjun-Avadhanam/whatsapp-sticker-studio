@@ -570,6 +570,39 @@ and demonstrably varies between builds (issue #998: identical packs flipping pas
 is only meaningful against a known version. A competitor app, `com.marsvard.stickermakerforwhatsapp`,
 is also installed and is useful for comparing real-world pack behaviour.
 
+## Giphy — probed with a real key 2026-08-14. **VERDICT: feasible, build it.**
+
+Run against the live API before writing any UI, because the whole feature hinged on whether a free
+key's rate limit could survive a search screen. It can.
+
+- **The existing parser needs NO changes.** `GiphyClient._parse` read real payload 5/5 — it had only
+  ever seen mocked JSON. `images.original.mp4` and `images.preview_gif.url` are both present.
+- **`rating=g` works and MUST be sent.** Giphy does not filter by default; the client currently sends
+  only `api_key`, `q`, `limit`. A sticker app returning unrated content on an innocent query is not a
+  bug worth discovering on a user's phone.
+- **Pagination works** (`total_count: 500`, `offset` honoured), so load-more is viable.
+- **The mp4 is the right shape**: 263 KB, `[ftyp, moov, free, mdat]`, **avc1 (H.264), no audio track**
+  — identical in kind to the X extractor's output, so it feeds `AnimatedEncoder` the same way.
+- Originals are typically **480×480**, i.e. a mild upscale to our 512. Acceptable, worth knowing.
+
+**The rate limit, measured rather than looked up.** The widely-quoted "42 requests/hour beta" figure
+is **wrong for this key**:
+- **~168 back-to-back requests before HTTP 429.** 54 distinct queries passed, then a second burst
+  tripped at request 114 of that run.
+- **⚠️ POLLING WHILE THROTTLED EXTENDS THE BAN.** Probing every 30 s stayed 429 for **8 solid
+  minutes**; stopping all traffic cleared it in **10 minutes**. This is a rolling window that the
+  retries themselves keep feeding. **So on 429 the app must back off and stop — never retry-on-fail,
+  which is the instinctive thing to write and makes it strictly worse.**
+- **A realistic session does not come close**: 30 distinct searches at 2 s spacing all returned 200.
+  At ~3 requests per search, 168 is roughly 55 searches fired with no pause. Debounce (300 ms, as in
+  the Library) plus per-query caching keeps a user an order of magnitude away.
+
+**⚠️ Giphy sends NO rate-limit headers.** No `X-RateLimit-*`, no `Retry-After`, on 200 or on 429. The
+app can never know how close it is or how long to wait, so the only honest 429 copy is a soft "search
+is busy, try again in a few minutes" — do not invent a countdown, and do not auto-retry.
+
+**Attribution is required by Giphy's API terms** — the picker must carry the "Powered by GIPHY" mark.
+
 ## X/Twitter extractor service (`services/extractor/`)
 
 FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only

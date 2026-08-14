@@ -182,7 +182,30 @@ is cheap to repeat; a hand-built library is not.
   host↔device handshake then intermittently fails: the app launches, sits in the foreground doing
   nothing, and `flutter test` waits forever with no output. Diagnosed 2026-07-29 after it silently
   ate most of a session. Check with `adb forward --list`.
-- **☠️ A STALLED INSTALL IS A WEDGED usbipd LINK. Re-attach it — do not wait, do not poke adb.**
+- **☠️ A STALLED INSTALL IS USUALLY `adb install` ITSELF, NOT THE LINK. Push and install separately.**
+  Established 2026-08-14, and it **supersedes the re-attach advice below as the first thing to try**.
+  - **Symptom:** identical to the usbipd wedge — `adb install` sits forever while `adb devices`,
+    `df` and `pm list packages` all answer instantly. The I/O-counter check below still correctly
+    says "the transfer is dead"; what it *cannot* tell you is **which** transfer.
+  - **The decisive test takes 40 seconds — `adb push` the same APK.** A plain file transfer uses a
+    different path from a streamed install:
+    ```bash
+    adb push build/app/outputs/flutter-apk/app-debug.apk /data/local/tmp/ss.apk
+    adb shell pm install -r -t /data/local/tmp/ss.apk
+    adb shell rm -f /data/local/tmp/ss.apk
+    ```
+    **Measured: the push moved 360 MB in 37 s (~9.6 MB/s) and `pm install` took 3 s — on the very
+    link where `adb install` had just frozen twice.** So the link was never the problem.
+  - **Re-attaching usbipd did NOT fix it**, which is what ruled the link out. `adb install` stalled
+    at ~8.5 MB on a freshly attached link and ~11 MB on the next attempt; both times the adb
+    server's `rchar` went to exactly zero and stayed there.
+  - **`adb kill-server` silently drops every `adb reverse` mapping.** Re-run
+    `adb reverse tcp:8000 tcp:8010` after any server restart or the tethered extractor goes dead —
+    which looks exactly like a broken feature.
+  - Prefer push+install as the **default** for this project's debug APK. It is ~40 s, it is
+    observable (the file grows), and it does not depend on the streamed-install path at all.
+
+- **☠️ A STALLED INSTALL CAN ALSO BE A WEDGED usbipd LINK. Re-attach it — do not wait, do not poke adb.**
   Diagnosed properly 2026-08-13, and this supersedes the "keep polling / just wait it out" folklore
   below.
   - **Symptom:** `adb install` (or `flutter test`'s install step) sits for 10+ minutes, while

@@ -1,5 +1,5 @@
 name: whatsapp_sticker_studio
-description: "A new Flutter project."
+description: "Make, tag, find and send WhatsApp stickers — a standalone Android app."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -81,6 +81,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # Generates every launcher density plus the adaptive icon from one source, so
+  # the icon is a config block rather than five hand-cut PNGs kept in step.
+  flutter_launcher_icons: ^0.14.1
+
   # On-device tests (Tasks 5b/6): the native WebP encoders can only be exercised
   # on real hardware — `flutter test` has no platform side to answer the channel.
   integration_test:
@@ -145,3 +149,21 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Launcher icon. Regenerate the sources with `python3 tool/make_app_icon.py
+# assets/icon`, then `dart run flutter_launcher_icons`.
+#
+# The design is three fanned die-cut cards: a PACK, which is the app's actual
+# unit and the only route into WhatsApp's tray. Chosen over a peeling corner and
+# a die-cut face because it is the only one that still reads at 48 dp.
+#
+# Deliberately nothing WhatsApp-like — no #25D366, no phone-in-speech-bubble.
+# This is a standalone third-party app and the icon must not imply otherwise.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/icon/icon.png
+  # Adaptive layers are separate because a launcher masks the foreground to any
+  # shape it likes; the background must be a flat colour behind it.
+  adaptive_icon_background: "#1A1C28"
+  adaptive_icon_foreground: assets/icon/icon_foreground.png

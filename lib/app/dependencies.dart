@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../encoder/animated_encoder.dart';
 import '../encoder/encoder.dart';
+import '../encoder/ffmpeg_image_transcoder.dart';
 import '../encoder/native_webp_encoder.dart';
 import '../encoder/static_encoder.dart';
 import '../encoder/tray_icon_encoder.dart';
@@ -141,7 +142,12 @@ class AppDependencies {
       database: database,
       store: store,
       search: search,
-      staticEncoder: StaticEncoder(NativeWebpEncoder()),
+      // The transcoder is the HEIC fallback: photos the Dart `image` package
+      // cannot read go through ffmpeg instead of being refused.
+      staticEncoder: StaticEncoder(
+        NativeWebpEncoder(),
+        transcoder: const FfmpegImageTranscoder(),
+      ),
       animatedEncoder: animated,
       trayIconEncoder: TrayIconEncoder(NativeWebpEncoder()),
       tagger: tagger,

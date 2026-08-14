@@ -129,13 +129,29 @@ void formatSupportTests() {
       '-pix_fmt yuv420p ${source.path}',
     );
 
+    // Each container gets a codec it legitimately accepts. The first attempt at
+    // this test transcoded H.264 into every one of them and reported 3gp and
+    // webm as unsupported — but webm simply cannot carry H.264, so that was the
+    // MUXER refusing an invalid combination, not the demuxer failing. It is the
+    // demuxer we depend on: a user hands us a file someone else wrote.
+    const codecs = <String, String>{
+      'mkv': '-c:v copy',
+      'avi': '-c:v mpeg4',
+      '3gp': '-c:v mpeg4 -s 176x144 -r 15', // 3GPP is strict about profile/size
+      'm4v': '-c:v copy',
+      'mov': '-c:v copy',
+      'webm': '-c:v libvpx -b:v 200k', // WebM is VP8/VP9/AV1 only
+    };
+
     final results = <String, bool>{};
-    for (final ext in ['mkv', 'avi', '3gp', 'm4v', 'mov', 'webm']) {
+    for (final entry in codecs.entries) {
+      final ext = entry.key;
       final container = File(p.join(work.path, 'clip.$ext'));
       final made = await FFmpegKit.execute(
-        '-y -i ${source.path} ${container.path}',
+        '-y -i ${source.path} ${entry.value} -an ${container.path}',
       );
       if (!ReturnCode.isSuccess(await made.getReturnCode())) {
+        debugPrint('>>> FORMATS $ext: could not WRITE the container (muxer)');
         results[ext] = false;
         continue;
       }

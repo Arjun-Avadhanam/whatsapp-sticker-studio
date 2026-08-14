@@ -10,10 +10,16 @@ import '../core/media.dart';
 class MediaKindResolver {
   const MediaKindResolver._();
 
-  /// Still formats we must reject up front because nothing in our static path
-  /// can read them. HEIC is a common phone camera format, so this is a real
-  /// gap rather than a theoretical one — see `CLAUDE.md` for the fallback plan.
-  static const Set<String> _undecodableStills = {
+  /// Formats the Dart `image` package cannot read, but **ffmpeg can** — so they
+  /// are accepted here and handled by `StaticEncoder`'s transcoder fallback.
+  ///
+  /// These were rejected outright until 2026-08-14, which was a workaround, not
+  /// a fix: HEIC is the default camera format on many phones, so a user picked a
+  /// photo they could see perfectly well in their gallery and was told it was
+  /// unsupported. Device-verified that this ffmpeg build decodes both HEIC and
+  /// AVIF before the rejection was lifted — accepting them without that would
+  /// only have traded "unsupported format" for the vaguer "could not decode".
+  static const Set<String> _transcodedStills = {
     'image/heic',
     'image/heif',
     'image/avif',
@@ -42,10 +48,10 @@ class MediaKindResolver {
     if (mime == 'image/gif') return MediaKind.gif;
     if (mime.startsWith('video/')) return MediaKind.video;
 
-    // Also before the prefix: the Dart `image` package cannot decode HEIC/HEIF,
-    // so accepting them here would defer the failure to the encoder and report
-    // it as an unreadable file rather than an unsupported format.
-    if (_undecodableStills.contains(mime)) return null;
+    // Named explicitly rather than left to the generic image/ prefix, so the
+    // set stays the one documented place recording which stills need the
+    // transcoder — the prefix would accept them silently and lose that.
+    if (_transcodedStills.contains(mime)) return MediaKind.image;
 
     if (mime.startsWith('image/')) return MediaKind.image;
     return null;
@@ -57,12 +63,19 @@ class MediaKindResolver {
     if (dot < 0 || dot == path.length - 1) return null;
     final ext = path.substring(dot + 1).toLowerCase();
 
-    // Only formats we can actually decode. Stills go through the Dart `image`
-    // package, which has **no HEIC/HEIF decoder** — so heic/heif are deliberately
-    // absent despite being a common phone camera format. Claiming them would
-    // turn into "could not decode the image" on a photo the user can see fine in
-    // their gallery. See CLAUDE.md for the planned fallback.
-    const images = {'png', 'jpg', 'jpeg', 'webp', 'bmp'};
+    // Only formats we can actually decode. The first five go straight through
+    // the Dart `image` package; heic/heif/avif have no decoder there and rely on
+    // `StaticEncoder`'s ffmpeg transcoder instead — device-verified 2026-08-14.
+    const images = {
+      'png',
+      'jpg',
+      'jpeg',
+      'webp',
+      'bmp',
+      'heic',
+      'heif',
+      'avif',
+    };
     // Videos go through ffmpeg, which genuinely handles all of these.
     const videos = {'mp4', 'mov', 'webm', 'mkv', 'avi', '3gp', 'm4v'};
 

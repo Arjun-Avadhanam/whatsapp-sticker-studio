@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:whatsapp_sticker_studio/app/dependencies.dart';
+import 'package:whatsapp_sticker_studio/sources/giphy_client.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
@@ -72,6 +77,7 @@ void main() {
     Encoder? motion,
     TaggingService? tagger,
     Source Function(String)? xLinkSource,
+    Future<Source?> Function(BuildContext)? gifSource,
   }) async {
     deps = await testDependencies(tagger: tagger);
     addTearDown(deps.dispose);
@@ -91,6 +97,7 @@ void main() {
           // Injected so no real gallery or camera opens.
           sources: {'Gallery': source},
           xLinkSource: xLinkSource,
+          gifSource: gifSource,
         ),
       ),
     );
@@ -532,6 +539,144 @@ void main() {
         reason:
             'the X button covered Add to WhatsApp — the list needs bottom '
             'padding at least as tall as the button plus its margin',
+      );
+    });
+  });
+
+  group('the GIF button', () {
+    testWidgets('is hidden when the build has no Giphy key', (tester) async {
+      // test dependencies carry no key, which is also the state of a release
+      // build made without --dart-define. A button that could only ever fail is
+      // worse than an absent one.
+      await pump(tester, source: FakeSource(image()));
+
+      expect(find.byKey(const Key('source-gif')), findsNothing);
+    });
+
+    testWidgets('a chosen GIF loads into the Maker like any other media', (
+      tester,
+    ) async {
+      // The point of routing through pickFrom: a Giphy pick gets the same
+      // preview, fit modes, trim and Save as a gallery clip, with no special
+      // casing anywhere downstream.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        gifSource: (_) async => FakeSource(video()),
+      );
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sticker-preview')), findsOneWidget);
+    });
+
+    testWidgets('backing out of the picker changes nothing', (tester) async {
+      // Cancelling is an ordinary choice, not a failure — no banner, no media,
+      // no snackbar.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        gifSource: (_) async => null,
+      );
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pumpAndSettle();
+
+      // Still the untouched opening state: no media, and no complaint about
+      // something the user chose to do.
+      expect(find.byKey(const Key('sticker-preview')), findsNothing);
+      expect(find.text('Pick a photo or clip to begin.'), findsOneWidget);
+    });
+
+    testWidgets('the REAL picker path works end to end', (tester) async {
+      // Every other test here injects a stub source, which leaves the wiring
+      // production actually uses — build a client from the key, open the
+      // picker, wrap the chosen gif in a GiphySource — completely untested.
+      // This drives the whole thing over a mocked transport instead.
+      final deps = await testDependencies(
+        giphy: GiphyClient(
+          MockClient(
+            (req) async => http.Response(
+              jsonEncode({
+                'data': [
+                  {
+                    'id': 'g1',
+                    'title': 'a gif',
+                    'images': {
+                      'preview_gif': {'url': 'https://x/p.gif'},
+                      'original': {'mp4': 'https://x/o.mp4'},
+                    },
+                  },
+                ],
+                'pagination': {'total_count': 1, 'offset': 0},
+              }),
+              200,
+            ),
+          ),
+          apiKey: 'k',
+        ),
+        // Answers the mp4 download that GiphySource makes after the pick.
+        httpClient: MockClient(
+          (req) async => http.Response.bytes(onePixelPng(), 200),
+        ),
+      );
+      addTearDown(deps.dispose);
+
+      final controller = MakerController(
+        deps: deps,
+        staticEncoder: PngEncoder(),
+        animatedEncoder: PngEncoder(kind: StickerKind.animated),
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MakerScreen(dependencies: deps, controller: controller),
+        ),
+      );
+      await tester.pump();
+
+      // The key is present, so the button exists without being injected.
+      expect(find.byKey(const Key('source-gif')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('giphy-grid')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('giphy-gif-g1')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sticker-preview')), findsOneWidget);
+    });
+
+    testWidgets('a failed download is shown, then clears itself', (
+      tester,
+    ) async {
+      // GiphySource throws SourceException rather than returning null, so this
+      // reaches the same banner as a bad X link — and self-clears for the same
+      // reason: nothing can be acted on from it.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        gifSource: (_) async =>
+            ThrowingSource("That GIF couldn't be downloaded (HTTP 404)."),
+      );
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("That GIF couldn't be downloaded (HTTP 404)."),
+        findsOneWidget,
+      );
+
+      await tester.pump(const Duration(seconds: 6));
+
+      expect(
+        find.text("That GIF couldn't be downloaded (HTTP 404)."),
+        findsNothing,
       );
     });
   });

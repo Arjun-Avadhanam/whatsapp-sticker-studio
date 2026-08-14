@@ -5,12 +5,14 @@ import '../core/media.dart';
 import '../core/whatsapp_spec.dart';
 import '../sources/camera_source.dart';
 import '../sources/gallery_source.dart';
+import '../sources/giphy_source.dart';
 import '../models/sticker_record.dart';
 import '../models/pack_record.dart';
 import '../sources/source.dart';
 import '../sources/xlink_source.dart';
 import 'add_to_pack_sheet.dart';
 import 'export_pack_action.dart';
+import 'giphy_picker_screen.dart';
 import 'maker_controller.dart';
 import 'x_link_button.dart';
 
@@ -25,6 +27,7 @@ class MakerScreen extends StatefulWidget {
     this.controller,
     this.sources,
     this.xLinkSource,
+    this.gifSource,
   });
 
   final AppDependencies dependencies;
@@ -41,6 +44,11 @@ class MakerScreen extends StatefulWidget {
   /// Unlike [sources] this is a *builder*: the link is only known once the user
   /// has typed it, so the source cannot exist before then.
   final Source Function(String link)? xLinkSource;
+
+  /// Runs the "choose a GIF" flow and returns a source for the chosen one, or
+  /// null if the user backed out. Injectable for widget tests, which must not
+  /// reach the network.
+  final Future<Source?> Function(BuildContext context)? gifSource;
 
   @override
   State<MakerScreen> createState() => _MakerScreenState();
@@ -67,6 +75,37 @@ class _MakerScreenState extends State<MakerScreen> {
     if (extraction == null) return null;
     return (link) =>
         XLinkSource(extraction, widget.dependencies.httpClient, link);
+  }
+
+  /// Null when the build carries no Giphy key — the GIF button is then hidden
+  /// rather than shown as something that can only fail.
+  late final Future<Source?> Function(BuildContext)? _gifSource =
+      widget.gifSource ?? _defaultGifSource;
+
+  Future<Source?> Function(BuildContext)? get _defaultGifSource {
+    final giphy = widget.dependencies.giphy;
+    if (giphy == null) return null;
+    return (context) async {
+      final gif = await showGiphyPicker(context: context, client: giphy);
+      // Backing out is an ordinary choice, so it reaches the controller as a
+      // null source and shows nothing at all.
+      if (gif == null) return null;
+      return GiphySource(gif, widget.dependencies.httpClient);
+    };
+  }
+
+  /// Chooses a GIF, then loads it exactly like any other picked media.
+  ///
+  /// The download runs through `pickFrom`, so the busy state and the error
+  /// banner are the ones every other source already uses.
+  Future<void> _pickGif() async {
+    final build = _gifSource;
+    if (build == null) return;
+
+    final source = await build(context);
+    if (source == null || !mounted) return;
+
+    await _controller.pickFrom(source);
   }
 
   @override
@@ -196,6 +235,7 @@ class _MakerScreenState extends State<MakerScreen> {
             sources: _sources,
             busy: _controller.busy,
             onPick: _controller.pickFrom,
+            onGif: _gifSource == null ? null : _pickGif,
           ),
           const SizedBox(height: 16),
           if (_controller.error != null) _ErrorBanner(_controller.error!),
@@ -242,7 +282,16 @@ class _SourceButtons extends StatelessWidget {
     required this.sources,
     required this.busy,
     required this.onPick,
+    this.onGif,
   });
+
+  /// Opens the Giphy picker. Null when the build has no API key, in which case
+  /// no GIF button is drawn at all.
+  ///
+  /// Separate from [sources] because it does not fit their shape: the others
+  /// hand off to the OS and come back with media, while this one has to run a
+  /// whole search screen before there is a `Source` to pick from.
+  final VoidCallback? onGif;
 
   final Map<String, Source> sources;
   final bool busy;
@@ -257,6 +306,12 @@ class _SourceButtons extends StatelessWidget {
           OutlinedButton(
             onPressed: busy ? null : () => onPick(entry.value),
             child: Text(entry.key),
+          ),
+        if (onGif != null)
+          OutlinedButton(
+            key: const Key('source-gif'),
+            onPressed: busy ? null : onGif,
+            child: const Text('GIF'),
           ),
       ],
     );

@@ -18,7 +18,9 @@ import 'package:whatsapp_sticker_studio/models/pack_record.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
 import 'package:whatsapp_sticker_studio/packs/pack_service.dart';
 import 'package:whatsapp_sticker_studio/search/search_service.dart';
+import 'package:http/http.dart' as http;
 import 'package:whatsapp_sticker_studio/sharing/sharing_service.dart';
+import 'package:whatsapp_sticker_studio/sources/giphy_client.dart';
 import 'package:whatsapp_sticker_studio/tagger/tagging_orchestrator.dart';
 import 'package:whatsapp_sticker_studio/tagger/tagging_service.dart';
 
@@ -154,6 +156,8 @@ Future<AppDependencies> testDependencies({
   TaggingService? tagger,
   FakeExporter? exporter,
   FakeShareBackend? shareBackend,
+  GiphyClient? giphy,
+  http.Client? httpClient,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   final store = DriftLibraryStore(db);
@@ -193,6 +197,10 @@ Future<AppDependencies> testDependencies({
     // trade.
     sharing: SharingService(shareBackend ?? FakeShareBackend(), store),
     stickerDirectory: dir,
+    // Absent by default, which is what an unconfigured build looks like — so
+    // every screen test proves the GIF button stays hidden without a key.
+    giphy: giphy,
+    httpClient: httpClient,
   );
 }
 

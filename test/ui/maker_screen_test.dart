@@ -471,6 +471,15 @@ void main() {
         find.text('No video could be found in this tweet'),
         findsOneWidget,
       );
+
+      // And it takes itself away again. Found on device: the banner sat on the
+      // Maker indefinitely after a mistyped link, long after it had been read.
+      // Nothing can be acted on from it — the remedy is a different link.
+      await tester.pump(
+        const Duration(seconds: 5) + const Duration(seconds: 1),
+      );
+
+      expect(find.text('No video could be found in this tweet'), findsNothing);
     });
 
     testWidgets('never covers Add to WhatsApp', (tester) async {

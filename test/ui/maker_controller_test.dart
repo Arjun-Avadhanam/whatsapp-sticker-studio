@@ -18,6 +18,16 @@ class FakeSource implements Source {
   Future<MediaHandle?> pick() async => _handle;
 }
 
+/// A source that fails the way a remote one does — a bad link, a post with no
+/// video, a dead connection.
+class ThrowingSource implements Source {
+  ThrowingSource(this.message);
+  final String message;
+
+  @override
+  Future<MediaHandle?> pick() async => throw SourceException(message);
+}
+
 /// Counts encodes so tests can prove a re-encode did — or did not — happen.
 class CountingEncoder implements Encoder {
   CountingEncoder({this.throws});
@@ -59,13 +69,19 @@ void main() {
   late CountingEncoder stills;
   late CountingEncoder motion;
 
-  Future<MakerController> controller() async {
+  Future<MakerController> controller({
+    Encoder? motionEncoder,
+    Duration? errorLifetime,
+  }) async {
     final deps = await testDependencies();
     addTearDown(deps.dispose);
     return MakerController(
       deps: deps,
       staticEncoder: stills,
-      animatedEncoder: motion,
+      animatedEncoder: motionEncoder ?? motion,
+      // Shortened so the self-clearing error can be waited out in real time
+      // without adding seconds to the suite.
+      transientErrorLifetime: errorLifetime ?? const Duration(seconds: 5),
     );
   }
 
@@ -95,6 +111,70 @@ void main() {
       expect(c.preview, isNull);
       expect(c.error, isNull);
       expect(stills.calls, 0);
+    });
+
+    test('a source failure is shown, and takes itself away again', () async {
+      // Persisting was the bug found on device: a mistyped link left a red
+      // banner sitting on the Maker while the user got on with something else
+      // entirely. There is nothing to *do* about a bad link from the banner —
+      // the remedy is to try another one — so it has no reason to outlive
+      // being read.
+      final c = await controller(
+        errorLifetime: const Duration(milliseconds: 80),
+      );
+      await c.pickFrom(ThrowingSource('No video could be found in this tweet'));
+
+      expect(c.error, 'No video could be found in this tweet');
+
+      // Still there immediately after: it must be readable, not a flash.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(c.error, isNotNull);
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(c.error, isNull);
+    });
+
+    test('an ENCODER failure stays until the next encode', () async {
+      // Deliberately not transient. EncoderBudgetException says "try trimming
+      // it shorter" — an instruction to carry out on this screen, with the
+      // media still loaded. Taking it away mid-task would remove the only
+      // guidance that works.
+      final c = await controller(
+        motionEncoder: CountingEncoder(
+          throws: const EncoderBudgetException('too big — try trimming it'),
+        ),
+        errorLifetime: const Duration(milliseconds: 40),
+      );
+      await c.pickFrom(FakeSource(video()));
+      expect(c.error, contains('trimming'));
+
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(
+        c.error,
+        contains('trimming'),
+        reason: 'the remedy must still be on screen while it is carried out',
+      );
+    });
+
+    test('a newer failure is not cut short by the older one expiring', () async {
+      // Two failures inside one lifetime: the first timer must not retract the
+      // second message, or a rapid retry shows its error for a split second.
+      final c = await controller(
+        errorLifetime: const Duration(milliseconds: 100),
+      );
+      await c.pickFrom(ThrowingSource('first'));
+
+      await Future<void>.delayed(const Duration(milliseconds: 70));
+      await c.pickFrom(ThrowingSource('second'));
+      expect(c.error, 'second');
+
+      // The first error's timer would have fired by now.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(c.error, 'second');
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(c.error, isNull);
     });
   });
 

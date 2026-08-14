@@ -22,6 +22,7 @@ class MakerController extends ChangeNotifier {
     required AppDependencies deps,
     Encoder? staticEncoder,
     Encoder? animatedEncoder,
+    this.transientErrorLifetime = const Duration(seconds: 5),
   }) : _deps = deps,
        _static = staticEncoder ?? deps.staticEncoder,
        _animated = animatedEncoder ?? deps.animatedEncoder;
@@ -36,6 +37,22 @@ class MakerController extends ChangeNotifier {
   EncodeParams? _previewParams;
   bool _busy = false;
   String? _error;
+
+  /// Clears a transient error after [transientErrorLifetime]. Null whenever the
+  /// current error is one the user is meant to act on.
+  Timer? _errorTimer;
+  bool _disposed = false;
+
+  /// How long a self-clearing error stays on screen.
+  ///
+  /// Long enough to read the longest of them — "No video could be found in this
+  /// tweet" and the what-a-link-looks-like hint are both a full line — and short
+  /// enough that it is gone before the next attempt.
+  ///
+  /// Injectable so tests can shorten it. The alternative, `fakeAsync`, does not
+  /// compose with the async bodies these tests already need, and waiting out a
+  /// real five seconds three times over is a slow suite for no gain.
+  final Duration transientErrorLifetime;
 
   MediaHandle? get media => _media;
   EncodeParams get params => _params;
@@ -72,14 +89,16 @@ class MakerController extends ChangeNotifier {
     // no indication anything is happening. It also stops a second tap starting
     // a competing fetch.
     _busy = true;
-    _error = null; // a retry must not sit under the previous failure
+    _clearError(); // a retry must not sit under the previous failure
     notifyListeners();
 
     final MediaHandle? picked;
     try {
       picked = await source.pick();
     } on SourceException catch (e) {
-      _error = e.message;
+      // Self-clearing: there is nothing to do about a bad link except try
+      // another one, so the banner has no reason to outlive being read.
+      _showTransientError(e.message);
       return;
     } finally {
       // Released here rather than after loadMedia: _encode owns the flag from
@@ -103,7 +122,7 @@ class MakerController extends ChangeNotifier {
     _params = const EncodeParams();
     _preview = null;
     _previewParams = null;
-    _error = null;
+    _clearError();
     notifyListeners();
 
     await _encode();
@@ -313,7 +332,7 @@ class MakerController extends ChangeNotifier {
     if (media == null) return;
 
     _busy = true;
-    _error = null;
+    _clearError();
     notifyListeners();
 
     final attempted = _params;
@@ -332,6 +351,48 @@ class MakerController extends ChangeNotifier {
       _busy = false;
       notifyListeners();
     }
+  }
+
+  /// Shows [message] and takes it away again on its own.
+  ///
+  /// Used for failures the user cannot act on from the banner — a bad link, a
+  /// post with no video, a dead connection. The remedy is always "try a
+  /// different link", so once it has been read the banner is only clutter, and
+  /// it used to sit on the Maker indefinitely while the user got on with
+  /// something unrelated.
+  ///
+  /// **Encoder failures deliberately do NOT use this.** `EncoderBudgetException`
+  /// says "try trimming it shorter", which is an instruction to carry out on
+  /// this screen with the media still loaded; taking it away mid-task would
+  /// remove the only guidance that works. Those clear on the next encode.
+  void _showTransientError(String message) {
+    _error = message;
+    _errorTimer?.cancel();
+    _errorTimer = Timer(transientErrorLifetime, () {
+      // A later error, or any action that cleared the field, wins — this timer
+      // only ever retracts the message it was started for.
+      if (_disposed || _error != message) return;
+      _error = null;
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  /// Drops any error, and the pending retraction with it.
+  ///
+  /// Cancelling matters: without it a timer from a dismissed error fires later
+  /// and notifies for nothing, and in a test it outlives the controller.
+  void _clearError() {
+    _errorTimer?.cancel();
+    _errorTimer = null;
+    _error = null;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _errorTimer?.cancel();
+    super.dispose();
   }
 
   @visibleForTesting

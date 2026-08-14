@@ -96,6 +96,16 @@ class $StickersTable extends Stickers with TableInfo<$StickersTable, Sticker> {
     requiredDuringInsert: false,
   );
   @override
+  late final GeneratedColumnWithTypeConverter<List<String>, String> emojis =
+      GeneratedColumn<String>(
+        'emojis',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+        defaultValue: const Constant('[]'),
+      ).withConverter<List<String>>($StickersTable.$converteremojis);
+  @override
   late final GeneratedColumnWithTypeConverter<StickerSource, String> source =
       GeneratedColumn<String>(
         'source',
@@ -157,6 +167,7 @@ class $StickersTable extends Stickers with TableInfo<$StickersTable, Sticker> {
     manualName,
     manualTags,
     notes,
+    emojis,
     source,
     createdAt,
     usageCount,
@@ -292,6 +303,12 @@ class $StickersTable extends Stickers with TableInfo<$StickersTable, Sticker> {
         DriftSqlType.string,
         data['${effectivePrefix}notes'],
       ),
+      emojis: $StickersTable.$converteremojis.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}emojis'],
+        )!,
+      ),
       source: $StickersTable.$convertersource.fromSql(
         attachedDatabase.typeMapping.read(
           DriftSqlType.string,
@@ -330,6 +347,8 @@ class $StickersTable extends Stickers with TableInfo<$StickersTable, Sticker> {
       const StringListConverter();
   static TypeConverter<List<String>, String> $convertermanualTags =
       const StringListConverter();
+  static TypeConverter<List<String>, String> $converteremojis =
+      const StringListConverter();
   static JsonTypeConverter2<StickerSource, String, String> $convertersource =
       const EnumNameConverter<StickerSource>(StickerSource.values);
   static JsonTypeConverter2<TaggingStatus, String, String>
@@ -348,6 +367,14 @@ class Sticker extends DataClass implements Insertable<Sticker> {
   final String? manualName;
   final List<String> manualTags;
   final String? notes;
+
+  /// Emoji sent to WhatsApp as the sticker's `emojis` field (max 3).
+  ///
+  /// The only per-sticker signal that helps **inside** WhatsApp: its tray has
+  /// its own emoji search, and everything else we index only helps find a
+  /// sticker in *our* app. Defaulted rather than nullable so v4 rows read back
+  /// as an empty list without a migration backfill.
+  final List<String> emojis;
   final StickerSource source;
   final DateTime createdAt;
   final int usageCount;
@@ -363,6 +390,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
     this.manualName,
     required this.manualTags,
     this.notes,
+    required this.emojis,
     required this.source,
     required this.createdAt,
     required this.usageCount,
@@ -398,6 +426,11 @@ class Sticker extends DataClass implements Insertable<Sticker> {
       map['notes'] = Variable<String>(notes);
     }
     {
+      map['emojis'] = Variable<String>(
+        $StickersTable.$converteremojis.toSql(emojis),
+      );
+    }
+    {
       map['source'] = Variable<String>(
         $StickersTable.$convertersource.toSql(source),
       );
@@ -430,6 +463,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
       notes: notes == null && nullToAbsent
           ? const Value.absent()
           : Value(notes),
+      emojis: Value(emojis),
       source: Value(source),
       createdAt: Value(createdAt),
       usageCount: Value(usageCount),
@@ -455,6 +489,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
       manualName: serializer.fromJson<String?>(json['manualName']),
       manualTags: serializer.fromJson<List<String>>(json['manualTags']),
       notes: serializer.fromJson<String?>(json['notes']),
+      emojis: serializer.fromJson<List<String>>(json['emojis']),
       source: $StickersTable.$convertersource.fromJson(
         serializer.fromJson<String>(json['source']),
       ),
@@ -481,6 +516,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
       'manualName': serializer.toJson<String?>(manualName),
       'manualTags': serializer.toJson<List<String>>(manualTags),
       'notes': serializer.toJson<String?>(notes),
+      'emojis': serializer.toJson<List<String>>(emojis),
       'source': serializer.toJson<String>(
         $StickersTable.$convertersource.toJson(source),
       ),
@@ -503,6 +539,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
     Value<String?> manualName = const Value.absent(),
     List<String>? manualTags,
     Value<String?> notes = const Value.absent(),
+    List<String>? emojis,
     StickerSource? source,
     DateTime? createdAt,
     int? usageCount,
@@ -518,6 +555,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
     manualName: manualName.present ? manualName.value : this.manualName,
     manualTags: manualTags ?? this.manualTags,
     notes: notes.present ? notes.value : this.notes,
+    emojis: emojis ?? this.emojis,
     source: source ?? this.source,
     createdAt: createdAt ?? this.createdAt,
     usageCount: usageCount ?? this.usageCount,
@@ -541,6 +579,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
           ? data.manualTags.value
           : this.manualTags,
       notes: data.notes.present ? data.notes.value : this.notes,
+      emojis: data.emojis.present ? data.emojis.value : this.emojis,
       source: data.source.present ? data.source.value : this.source,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       usageCount: data.usageCount.present
@@ -565,6 +604,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
           ..write('manualName: $manualName, ')
           ..write('manualTags: $manualTags, ')
           ..write('notes: $notes, ')
+          ..write('emojis: $emojis, ')
           ..write('source: $source, ')
           ..write('createdAt: $createdAt, ')
           ..write('usageCount: $usageCount, ')
@@ -585,6 +625,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
     manualName,
     manualTags,
     notes,
+    emojis,
     source,
     createdAt,
     usageCount,
@@ -604,6 +645,7 @@ class Sticker extends DataClass implements Insertable<Sticker> {
           other.manualName == this.manualName &&
           other.manualTags == this.manualTags &&
           other.notes == this.notes &&
+          other.emojis == this.emojis &&
           other.source == this.source &&
           other.createdAt == this.createdAt &&
           other.usageCount == this.usageCount &&
@@ -621,6 +663,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
   final Value<String?> manualName;
   final Value<List<String>> manualTags;
   final Value<String?> notes;
+  final Value<List<String>> emojis;
   final Value<StickerSource> source;
   final Value<DateTime> createdAt;
   final Value<int> usageCount;
@@ -637,6 +680,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
     this.manualName = const Value.absent(),
     this.manualTags = const Value.absent(),
     this.notes = const Value.absent(),
+    this.emojis = const Value.absent(),
     this.source = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.usageCount = const Value.absent(),
@@ -654,6 +698,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
     this.manualName = const Value.absent(),
     required List<String> manualTags,
     this.notes = const Value.absent(),
+    this.emojis = const Value.absent(),
     required StickerSource source,
     required DateTime createdAt,
     required int usageCount,
@@ -681,6 +726,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
     Expression<String>? manualName,
     Expression<String>? manualTags,
     Expression<String>? notes,
+    Expression<String>? emojis,
     Expression<String>? source,
     Expression<DateTime>? createdAt,
     Expression<int>? usageCount,
@@ -698,6 +744,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
       if (manualName != null) 'manual_name': manualName,
       if (manualTags != null) 'manual_tags': manualTags,
       if (notes != null) 'notes': notes,
+      if (emojis != null) 'emojis': emojis,
       if (source != null) 'source': source,
       if (createdAt != null) 'created_at': createdAt,
       if (usageCount != null) 'usage_count': usageCount,
@@ -717,6 +764,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
     Value<String?>? manualName,
     Value<List<String>>? manualTags,
     Value<String?>? notes,
+    Value<List<String>>? emojis,
     Value<StickerSource>? source,
     Value<DateTime>? createdAt,
     Value<int>? usageCount,
@@ -734,6 +782,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
       manualName: manualName ?? this.manualName,
       manualTags: manualTags ?? this.manualTags,
       notes: notes ?? this.notes,
+      emojis: emojis ?? this.emojis,
       source: source ?? this.source,
       createdAt: createdAt ?? this.createdAt,
       usageCount: usageCount ?? this.usageCount,
@@ -779,6 +828,11 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
     if (notes.present) {
       map['notes'] = Variable<String>(notes.value);
     }
+    if (emojis.present) {
+      map['emojis'] = Variable<String>(
+        $StickersTable.$converteremojis.toSql(emojis.value),
+      );
+    }
     if (source.present) {
       map['source'] = Variable<String>(
         $StickersTable.$convertersource.toSql(source.value),
@@ -816,6 +870,7 @@ class StickersCompanion extends UpdateCompanion<Sticker> {
           ..write('manualName: $manualName, ')
           ..write('manualTags: $manualTags, ')
           ..write('notes: $notes, ')
+          ..write('emojis: $emojis, ')
           ..write('source: $source, ')
           ..write('createdAt: $createdAt, ')
           ..write('usageCount: $usageCount, ')
@@ -1270,6 +1325,7 @@ typedef $$StickersTableCreateCompanionBuilder =
       Value<String?> manualName,
       required List<String> manualTags,
       Value<String?> notes,
+      Value<List<String>> emojis,
       required StickerSource source,
       required DateTime createdAt,
       required int usageCount,
@@ -1288,6 +1344,7 @@ typedef $$StickersTableUpdateCompanionBuilder =
       Value<String?> manualName,
       Value<List<String>> manualTags,
       Value<String?> notes,
+      Value<List<String>> emojis,
       Value<StickerSource> source,
       Value<DateTime> createdAt,
       Value<int> usageCount,
@@ -1351,6 +1408,12 @@ class $$StickersTableFilterComposer
   ColumnFilters<String> get notes => $composableBuilder(
     column: $table.notes,
     builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<List<String>, List<String>, String>
+  get emojis => $composableBuilder(
+    column: $table.emojis,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
   );
 
   ColumnWithTypeConverterFilters<StickerSource, StickerSource, String>
@@ -1435,6 +1498,11 @@ class $$StickersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get emojis => $composableBuilder(
+    column: $table.emojis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get source => $composableBuilder(
     column: $table.source,
     builder: (column) => ColumnOrderings(column),
@@ -1504,6 +1572,9 @@ class $$StickersTableAnnotationComposer
   GeneratedColumn<String> get notes =>
       $composableBuilder(column: $table.notes, builder: (column) => column);
 
+  GeneratedColumnWithTypeConverter<List<String>, String> get emojis =>
+      $composableBuilder(column: $table.emojis, builder: (column) => column);
+
   GeneratedColumnWithTypeConverter<StickerSource, String> get source =>
       $composableBuilder(column: $table.source, builder: (column) => column);
 
@@ -1562,6 +1633,7 @@ class $$StickersTableTableManager
                 Value<String?> manualName = const Value.absent(),
                 Value<List<String>> manualTags = const Value.absent(),
                 Value<String?> notes = const Value.absent(),
+                Value<List<String>> emojis = const Value.absent(),
                 Value<StickerSource> source = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> usageCount = const Value.absent(),
@@ -1578,6 +1650,7 @@ class $$StickersTableTableManager
                 manualName: manualName,
                 manualTags: manualTags,
                 notes: notes,
+                emojis: emojis,
                 source: source,
                 createdAt: createdAt,
                 usageCount: usageCount,
@@ -1596,6 +1669,7 @@ class $$StickersTableTableManager
                 Value<String?> manualName = const Value.absent(),
                 required List<String> manualTags,
                 Value<String?> notes = const Value.absent(),
+                Value<List<String>> emojis = const Value.absent(),
                 required StickerSource source,
                 required DateTime createdAt,
                 required int usageCount,
@@ -1612,6 +1686,7 @@ class $$StickersTableTableManager
                 manualName: manualName,
                 manualTags: manualTags,
                 notes: notes,
+                emojis: emojis,
                 source: source,
                 createdAt: createdAt,
                 usageCount: usageCount,

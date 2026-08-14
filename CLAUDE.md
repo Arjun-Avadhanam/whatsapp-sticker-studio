@@ -182,7 +182,30 @@ is cheap to repeat; a hand-built library is not.
   host↔device handshake then intermittently fails: the app launches, sits in the foreground doing
   nothing, and `flutter test` waits forever with no output. Diagnosed 2026-07-29 after it silently
   ate most of a session. Check with `adb forward --list`.
-- **☠️ A STALLED INSTALL IS A WEDGED usbipd LINK. Re-attach it — do not wait, do not poke adb.**
+- **☠️ A STALLED INSTALL IS USUALLY `adb install` ITSELF, NOT THE LINK. Push and install separately.**
+  Established 2026-08-14, and it **supersedes the re-attach advice below as the first thing to try**.
+  - **Symptom:** identical to the usbipd wedge — `adb install` sits forever while `adb devices`,
+    `df` and `pm list packages` all answer instantly. The I/O-counter check below still correctly
+    says "the transfer is dead"; what it *cannot* tell you is **which** transfer.
+  - **The decisive test takes 40 seconds — `adb push` the same APK.** A plain file transfer uses a
+    different path from a streamed install:
+    ```bash
+    adb push build/app/outputs/flutter-apk/app-debug.apk /data/local/tmp/ss.apk
+    adb shell pm install -r -t /data/local/tmp/ss.apk
+    adb shell rm -f /data/local/tmp/ss.apk
+    ```
+    **Measured: the push moved 360 MB in 37 s (~9.6 MB/s) and `pm install` took 3 s — on the very
+    link where `adb install` had just frozen twice.** So the link was never the problem.
+  - **Re-attaching usbipd did NOT fix it**, which is what ruled the link out. `adb install` stalled
+    at ~8.5 MB on a freshly attached link and ~11 MB on the next attempt; both times the adb
+    server's `rchar` went to exactly zero and stayed there.
+  - **`adb kill-server` silently drops every `adb reverse` mapping.** Re-run
+    `adb reverse tcp:8000 tcp:8010` after any server restart or the tethered extractor goes dead —
+    which looks exactly like a broken feature.
+  - Prefer push+install as the **default** for this project's debug APK. It is ~40 s, it is
+    observable (the file grows), and it does not depend on the streamed-install path at all.
+
+- **☠️ A STALLED INSTALL CAN ALSO BE A WEDGED usbipd LINK. Re-attach it — do not wait, do not poke adb.**
   Diagnosed properly 2026-08-13, and this supersedes the "keep polling / just wait it out" folklore
   below.
   - **Symptom:** `adb install` (or `flutter test`'s install step) sits for 10+ minutes, while
@@ -547,29 +570,148 @@ and demonstrably varies between builds (issue #998: identical packs flipping pas
 is only meaningful against a known version. A competitor app, `com.marsvard.stickermakerforwhatsapp`,
 is also installed and is useful for comparing real-world pack behaviour.
 
+## Giphy — probed with a real key 2026-08-14. **VERDICT: feasible, build it.**
+
+Run against the live API before writing any UI, because the whole feature hinged on whether a free
+key's rate limit could survive a search screen. It can.
+
+- **The existing parser needs NO changes.** `GiphyClient._parse` read real payload 5/5 — it had only
+  ever seen mocked JSON. `images.original.mp4` and `images.preview_gif.url` are both present.
+- **`rating=g` works and MUST be sent.** Giphy does not filter by default; the client currently sends
+  only `api_key`, `q`, `limit`. A sticker app returning unrated content on an innocent query is not a
+  bug worth discovering on a user's phone.
+- **Pagination works** (`total_count: 500`, `offset` honoured), so load-more is viable.
+- **The mp4 is the right shape**: 263 KB, `[ftyp, moov, free, mdat]`, **avc1 (H.264), no audio track**
+  — identical in kind to the X extractor's output, so it feeds `AnimatedEncoder` the same way.
+- Originals are typically **480×480**, i.e. a mild upscale to our 512. Acceptable, worth knowing.
+
+**The rate limit, measured rather than looked up.** The widely-quoted "42 requests/hour beta" figure
+is **wrong for this key**:
+- **~168 back-to-back requests before HTTP 429.** 54 distinct queries passed, then a second burst
+  tripped at request 114 of that run.
+- **⚠️ POLLING WHILE THROTTLED EXTENDS THE BAN.** Probing every 30 s stayed 429 for **8 solid
+  minutes**; stopping all traffic cleared it in **10 minutes**. This is a rolling window that the
+  retries themselves keep feeding. **So on 429 the app must back off and stop — never retry-on-fail,
+  which is the instinctive thing to write and makes it strictly worse.**
+- **A realistic session does not come close**: 30 distinct searches at 2 s spacing all returned 200.
+  At ~3 requests per search, 168 is roughly 55 searches fired with no pause. Debounce (300 ms, as in
+  the Library) plus per-query caching keeps a user an order of magnitude away.
+
+**⚠️ Giphy sends NO rate-limit headers.** No `X-RateLimit-*`, no `Retry-After`, on 200 or on 429. The
+app can never know how close it is or how long to wait, so the only honest 429 copy is a soft "search
+is busy, try again in a few minutes" — do not invent a countdown, and do not auto-retry.
+
+**Attribution is required by Giphy's API terms** — the picker must carry the "Powered by GIPHY" mark.
+
+**✅ DEVICE-VERIFIED END TO END 2026-08-14.** Search, trending, paging, pick, download, ffmpeg
+encode and Save all work on the A059P. The full chain from Giphy's mp4 to a saved sticker is closed.
+
+**Picker decisions (Task D.2/D.3):**
+- **A full route, not a bottom sheet.** It needs a keyboard, a scrolling grid and most of the screen,
+  and a sheet is not lifted for the keyboard — the same trap that hid the add-to-pack sheet on device.
+- **Opens on trending**, because an empty search screen asks the user to guess what the app is good
+  at before showing them anything.
+- **Debounce (300 ms) and the request-id guard are lifted from the Library** deliberately: two search
+  fields in one app that behave differently are worse than either choice alone. Here the debounce is
+  also a cost control, not just polish.
+- **`GIF` is a third button in the source row** (Gallery · Camera · GIF) — it is a *pick*, like the
+  other two. It could not join the `sources` map, though: the others hand off to the OS and come back
+  with media, while this one runs a whole search screen before there is a `Source` at all.
+- The download runs through `pickFrom`, so a Giphy pick inherits the same busy state and the same
+  self-clearing error banner as every other source, with no special casing downstream.
+
+**⚠️ Two tests here passed while asserting nothing — both worth recognising elsewhere:**
+- The staleness test passed with the request-id guard *removed*, twice. First the fake built its
+  response **after** the gate, so the "stale" reply carried fresh data. Then, once fixed, the
+  assertion still checked the *first* item — but a reset clears the list when the request **starts**,
+  so a late reply **appends** rather than replaces. Only "no stale item appears at all" catches it.
+- The paging test read **built widgets** as a proxy for loaded data. `GridView.builder` is lazy, so
+  that counts the viewport, not the list. Count requests and look up specific ids instead.
+- Both were found by deleting the guard and checking the test failed. Do that; it is the only thing
+  that distinguishes a real test from a decorative one.
+
 ## X/Twitter extractor service (`services/extractor/`)
 
 FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only
 **resolves** the tweet's mp4 URL (`skip_download`); the app downloads the bytes. Server-side so a
 Twitter-format break is fixed by upgrading yt-dlp, not shipping a new app build.
 
-**Live-test findings (2026-07-25, local run, real unmocked yt-dlp):**
-- Service runs end-to-end; error path surfaces yt-dlp's real messages as 422. ✅
-- **This environment reaches Twitter** — yt-dlp's `[twitter]` extractor ran and returned
-  tweet-specific responses (`No video could be found in this tweet`), i.e. **not** IP-blocked at the
-  network level. ✅
-- **Success path (200 + real `mp4_url`) NOT yet confirmed** — the tweets tried had no extractable
-  video (IDs were guessed). Needs a **known-video tweet URL** to confirm.
+**✅ SUCCESS PATH CONFIRMED 2026-08-14 — the last open question here is closed.**
+Run against a real video-bearing tweet supplied by the user
+(`https://x.com/i/status/2087646138526802000`) with **yt-dlp 2026.07.04**, unmocked:
 
-**TODO next session (needs a real video-bearing tweet URL, ideally from the user):**
-- Run `POST /extract` with a tweet that definitely has video → confirm a real `mp4_url` comes back.
-- If Twitter auth-gates video from a datacenter IP, the deploy target may need yt-dlp **cookies**.
-- After a confirmed success, **pin the working yt-dlp version** in `requirements.txt` (currently a
-  floor `>=`, deliberately kept updatable).
+- `resolve_info` returned one mp4 format and `pick_mp4` selected
+  `https://video.twimg.com/tweet_video/HPjPGOLaQAAFo8i.mp4`. ✅
+- Those bytes really download: **HTTP 200, 101 004 bytes, `video/mp4`**, box structure
+  `[ftyp, moov, mdat]` with an **`avc1`** sample entry and **no audio track**. ✅
+- **No cookies and no auth were needed** from this IP. The feared "Twitter auth-gates video from a
+  datacenter IP" case did *not* occur here — but this is a residential WSL host, so it is **not**
+  evidence about a PaaS IP. Re-check after deploying; cookies remain the contingency.
+- **`tweet_video/` is Twitter's GIF path** — Twitter serves animated GIFs as silent H.264 mp4s.
+  That is the ideal sticker input, and our ffmpeg decodes H.264 with its built-in decoder.
+- **yt-dlp is now PINNED** to the verified `==2026.7.4`. Bumping it is the fix for a format break.
+
+**Only ONE format came back** (`height: None`), because a GIF has a single variant. The
+multi-variant path in `pick_mp4` (`max` by height) is therefore **still unexercised on real data** —
+a genuine *video* tweet returns several mp4 renditions plus HLS. Low risk, but unproven.
+
+**Testing it on device WITHOUT deploying anything.** `adb reverse` points the phone's localhost at
+the dev machine, so a locally-run uvicorn is reachable from the app:
+
+```bash
+(cd services/extractor && uvicorn main:app)      # host, port 8000
+adb reverse tcp:8000 tcp:8000                     # phone localhost:8000 -> host
+flutter run --dart-define=EXTRACTOR_BASE_URL=http://localhost:8000
+```
+
+`android/app/src/debug/AndroidManifest.xml` sets `usesCleartextTraffic` for **debug only** —
+Android blocks cleartext HTTP from API 28, so without it the request fails before leaving the phone.
+Release must never carry that flag.
+
+**⚠️ `INTERNET` was in the DEBUG manifest only** (the Flutter scaffold puts it there for hot reload).
+Every debug build and every test worked, and a **release build would have had no network permission
+at all** — both remote sources failing only in release. Now declared in the main manifest. Fixed
+2026-08-14; nothing else in the app touches the network, which is why it went unnoticed.
+
+**TODO — deployment is the remaining blocker, and it is a decision, not a task:**
 - **Choose a deploy target** (free PaaS / small VPS) and record the base URL the app points at.
+  Until then the app reads `EXTRACTOR_BASE_URL` from `--dart-define` and hides the source when unset.
+- Confirm extraction still works **from the deploy IP** — see the cookies caveat above.
 
 To run locally: `pip install -r services/extractor/requirements.txt` then
 `uvicorn main:app` from `services/extractor/`.
+
+## Post-v1 gaps — device-verified 2026-08-14 (A, B, C, F)
+
+Full walkthrough on the A059P against the build installed that day. **Everything passed.** What the
+run settled, beyond "it works":
+
+**HEIC makes a sticker on real hardware.** The ffmpeg fallback engages invisibly — the user-facing
+behaviour is indistinguishable from a JPEG, which was the whole design goal. Note the fixture came
+from libheif, not a camera (see the Sources section), so this proves the container and codec path.
+- **Gallery apps mostly surface `DCIM/Camera` only.** A fixture pushed to `Pictures/` is correctly
+  indexed by MediaStore and still effectively invisible. Push test images to
+  `/sdcard/DCIM/Camera/` and scan them with
+  `content call --uri content://media/external/file --method scan_file --arg <path>`.
+
+**X-post stickers work end to end**, including local link validation, extraction, the ffmpeg encode
+and Save. Emoji selection works, skin-tone variants included.
+
+**BUG found here and fixed: the source-error banner never went away.** A mistyped link left a red
+banner sitting on the Maker indefinitely, following the user into unrelated work.
+- **Source failures now self-clear after 5 s.** There is nothing to act on from that banner — the
+  remedy is always "try a different link" — so once read it is pure clutter.
+- **Encoder failures deliberately do NOT self-clear.** `EncoderBudgetException` says "try trimming it
+  shorter", which is an instruction to carry out *on that screen with the media still loaded*.
+  Retracting it mid-task would remove the only guidance that works. They clear on the next encode.
+- The lifetime is a constructor argument, because `fakeAsync` does not compose with the async test
+  bodies the controller tests already have, and waiting out five real seconds per test is a slow
+  suite for nothing. A widget test must **pump past the lifetime** or the fake-time zone reports
+  "A Timer is still pending even after the widget tree was disposed".
+
+**The launcher identity is real now** — `android:label="Sticker Studio"` plus a generated adaptive
+icon (`tool/make_app_icon.py`). Both are checked-in generated artefacts that nothing else tests, so
+`test/app/app_identity_test.dart` pins them; the failure is otherwise only visible on a home screen.
 
 ## Connecting the Android device (WSL2) — solved 2026-07-29, don't re-derive
 
@@ -872,11 +1014,35 @@ ffmpeg:
 - **Motion** — ffmpeg: gif, mp4, mov, webm, mkv, avi, 3gp, m4v. Believed-good from the build's
   demuxers/decoders (H.264 + HEVC built in, libvpx, dav1d) but **not yet observed end-to-end**.
 
-**HEIC is a real, unclosed gap.** It is a common phone camera format, so users will hit it.
-`MediaKindResolver` currently **rejects** heic/heif/avif up front so they fail as "unsupported
-format" rather than as "could not decode the image" on a photo the user can see in their gallery —
-that is a workaround, not a fix. Planned fix: fall back to transcoding via the ffmpeg we already
-ship when `img.decodeImage` fails, which covers anything ffmpeg knows, not just HEIC.
+**✅ HEIC CLOSED 2026-08-14 — and the format list is finally measured, not assumed.**
+
+**This ffmpeg build decodes HEIC and AVIF.** Real libheif fixtures came back as 640×480 PNGs on
+device. That was the open question behind the whole fix: the alternative was Android's
+`BitmapFactory`, which carries an **API 28 floor** ffmpeg does not. Probed *before* implementing,
+because the recorded plan ("fall back to the ffmpeg we already ship") rested on an unchecked
+assumption about this specific build.
+
+- `ImageTranscoder` (interface) + `FfmpegImageTranscoder`, injected into `StaticEncoder`. It runs
+  **only after** the pure-Dart decode fails, so ordinary images never pay the process spawn.
+- `StaticEncoder._decode` returns `null` for every failure — a throw, a null, or a failed transcode —
+  so `encode` keeps **one** throw site instead of three copies of the same message.
+- `MediaKindResolver` now **accepts** heic/heif/avif. Note the extension branch is the one that
+  actually runs: `image_picker` supplies no mime type on Android.
+- ffmpeg is given the bytes with **no file extension** — it probes content, and guessing wrong is
+  worse than saying nothing when the whole reason we are there is not knowing the format.
+
+**ALL SIX video containers round-trip: mkv, avi, 3gp, m4v, mov, webm.** The first version of this
+test transcoded H.264 into every one of them and reported **3gp and webm as unsupported — that was
+wrong**. WebM cannot legally carry H.264, so the *muxer* refused an invalid combination; the
+**demuxer** was never exercised, and the demuxer is what matters because a user hands us a file
+someone else wrote. Give each container a codec it accepts and all six pass. Do not "fix" the
+supported list on the strength of a write-side failure.
+
+**Fixture limit, so a pass is not over-read:** the HEIC came from libheif, not a camera. An iPhone's
+HEIC uses particular HEVC profiles and often carries several items (tiles, thumbnails, depth maps),
+so this proves the container and codec path rather than every real-camera file. Fixtures are
+generated by `tool/make_heic_fixture.py` and bundled as **assets** — the app has no storage
+permission, so an `adb push`ed file fails to open.
 
 **No Android permissions are required for the pickers, and none should be added.** On API 33+
 `image_picker` uses the system **Photo Picker**, which grants access to only the chosen item —

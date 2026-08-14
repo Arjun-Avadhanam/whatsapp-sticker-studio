@@ -29,6 +29,7 @@ abstract class LibraryStore {
     Object? manualName = _unset,
     List<String>? manualTags,
     Object? notes = _unset,
+    List<String>? emojis,
   });
 
   /// Replaces auto-tags and marks tagging complete.
@@ -164,6 +165,7 @@ class DriftLibraryStore implements LibraryStore {
     Object? manualName = _unset,
     List<String>? manualTags,
     Object? notes = _unset,
+    List<String>? emojis,
   }) => _mutate(id, (current) {
     // Each field is forwarded to copyWith only when the caller supplied it.
     // We cannot pass this library's _unset into copyWith — copyWith compares
@@ -177,6 +179,9 @@ class DriftLibraryStore implements LibraryStore {
     }
     if (!identical(notes, _unset)) {
       updated = updated.copyWith(notes: notes as String?);
+    }
+    if (emojis != null) {
+      updated = updated.copyWith(emojis: emojis);
     }
     return updated;
   });
@@ -288,6 +293,7 @@ class DriftLibraryStore implements LibraryStore {
     manualName: Value(r.manualName),
     manualTags: Value(r.manualTags),
     notes: Value(r.notes),
+    emojis: Value(r.emojis),
     source: Value(r.source),
     createdAt: Value(r.createdAt),
     usageCount: Value(r.usageCount),
@@ -305,6 +311,7 @@ class DriftLibraryStore implements LibraryStore {
     manualName: row.manualName,
     manualTags: row.manualTags,
     notes: row.notes,
+    emojis: row.emojis,
     source: row.source,
     createdAt: row.createdAt,
     usageCount: row.usageCount,

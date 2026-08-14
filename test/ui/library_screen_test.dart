@@ -314,7 +314,16 @@ void main() {
 
     expect(find.byKey(const Key('detail-name')), findsOneWidget);
 
-    await tester.enterText(find.byKey(const Key('detail-name')), 'new name');
+    // ensureVisible first: the detail sheet is taller than the viewport now, so
+    // a field or button can be built yet positioned off-screen, where taps and
+    // enterText silently do nothing rather than failing.
+    final nameField = find.byKey(const Key('detail-name'));
+    await tester.ensureVisible(nameField);
+    await tester.pump();
+    await tester.enterText(nameField, 'new name');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Save'));
+    await tester.pump();
     await tester.tap(find.text('Save'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

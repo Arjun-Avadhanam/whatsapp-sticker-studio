@@ -107,6 +107,25 @@ abstract class Encoder {
   Future<EncodedSticker> encode(MediaHandle input, EncodeParams params);
 }
 
+/// Converts image bytes the Dart `image` package cannot read into PNG.
+///
+/// Exists for **HEIC**, the default camera format on many phones, which that
+/// package has no decoder for. Before this, such photos were rejected up front
+/// as "unsupported format" — honest, but a dead end on a picture the user can
+/// see perfectly well in their gallery.
+///
+/// An interface rather than a direct ffmpeg call so [StaticEncoder] stays pure
+/// Dart and unit-testable: its fit geometry is the part with real logic, and
+/// tying it to a platform binary would put that behind a device.
+abstract class ImageTranscoder {
+  /// PNG bytes, or `null` if this cannot be converted either.
+  ///
+  /// Returning null rather than throwing keeps the caller's control flow simple:
+  /// the fallback is best-effort, and "could not convert" is the same outcome as
+  /// "did not try".
+  Future<Uint8List?> toPng(Uint8List bytes);
+}
+
 /// Re-encodes a still as a genuinely animated WebP (≥2 identical frames).
 ///
 /// Split out of [AnimatedEncoder] as its own interface so pack logic can depend

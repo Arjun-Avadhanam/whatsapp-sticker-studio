@@ -43,6 +43,17 @@ class Stickers extends Table {
   TextColumn get manualName => text().nullable()();
   TextColumn get manualTags => text().map(const StringListConverter())();
   TextColumn get notes => text().nullable()();
+
+  /// Emoji sent to WhatsApp as the sticker's `emojis` field (max 3).
+  ///
+  /// The only per-sticker signal that helps **inside** WhatsApp: its tray has
+  /// its own emoji search, and everything else we index only helps find a
+  /// sticker in *our* app. Defaulted rather than nullable so v4 rows read back
+  /// as an empty list without a migration backfill.
+  TextColumn get emojis => text()
+      .map(const StringListConverter())
+      .withDefault(const Constant('[]'))();
+
   TextColumn get source => textEnum<StickerSource>()();
   DateTimeColumn get createdAt => dateTime()();
   IntColumn get usageCount => integer()();
@@ -80,7 +91,7 @@ class AppDatabase extends _$AppDatabase {
   static const String embeddingTable = 'sticker_embeddings';
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   /// True when this open **rebuilt the search index and left it empty**.
   ///
@@ -117,6 +128,12 @@ class AppDatabase extends _$AppDatabase {
         await customStatement('DROP TABLE IF EXISTS $searchTable;');
         await _createSearchIndex();
         searchIndexNeedsRebuild = true;
+      }
+      if (from < 5) {
+        // Additive and non-destructive: the column has a default, so existing
+        // rows read back as an empty list with no backfill. Emoji are also not
+        // searchable text, so unlike v4 this needs no index rebuild.
+        await m.addColumn(stickers, stickers.emojis);
       }
     },
   );

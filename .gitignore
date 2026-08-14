@@ -35,3 +35,7 @@ secrets.dart
 
 # ML models (large; document source in CLAUDE.md instead)
 *.tflite
+
+# Giphy API key — a real credential. Kept as a local file for convenience and
+# passed to the build with --dart-define; it must never enter a commit.
+giphy_api_key.txt

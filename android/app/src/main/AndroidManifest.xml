@@ -1,6 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required by the two REMOTE sources: the X-link extractor and Giphy
+         search. Everything else in the app is deliberately offline — encoding,
+         tagging and export never touch the network.
+
+         This must live in the MAIN manifest, not the debug one. The scaffold
+         puts INTERNET in src/debug only (Flutter needs it for hot reload), so
+         until now a release build had no network permission at all and both
+         remote sources would have failed in release while working perfectly in
+         every debug build and every test. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
-        android:label="whatsapp_sticker_studio"
+        android:label="Sticker Studio"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- launchMode is singleTask, NOT Flutter's default singleTop. A share

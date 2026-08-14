@@ -2,10 +2,15 @@
 fastapi>=0.140
 uvicorn>=0.30
 pydantic>=2.0
-# yt-dlp intentionally a floor, not a pin: it must stay updatable, since a
-# Twitter-format change is fixed by upgrading it. Pin to the tested version only
-# once real extraction has been verified against a live tweet.
-yt-dlp>=2026.7.4
+# PINNED 2026-08-14, after the success path was verified end-to-end against a
+# real video-bearing tweet (see CLAUDE.md). Held exactly, not as a floor, so the
+# deployed service is the one that was tested — an unpinned yt-dlp silently
+# changes under a redeploy, and this is the single most fragile dependency here.
+#
+# When Twitter breaks extraction, the fix is to BUMP THIS LINE and redeploy. That
+# is a one-line server change, which is the whole reason extraction lives in a
+# service instead of in the app.
+yt-dlp==2026.7.4
 
 # Test-only (used by CI's pytest job)
 pytest>=8.0

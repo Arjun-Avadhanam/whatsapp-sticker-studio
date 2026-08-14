@@ -83,14 +83,20 @@ void main() {
       );
     });
 
-    test('rejects stills nothing in our pipeline can decode', () {
-      // HEIC is a common phone camera format, but the Dart `image` package has
-      // no decoder for it. Accepting it here would defer the failure to the
-      // encoder and report a photo the user can see in their gallery as
-      // "could not decode the image".
-      expect(MediaKindResolver.of(mimeType: 'image/heic'), isNull);
-      expect(MediaKindResolver.of(mimeType: 'image/heif'), isNull);
-      expect(MediaKindResolver.of(path: '/tmp/IMG_0001.heic'), isNull);
+    test('ACCEPTS heic/heif/avif, which the transcoder handles', () {
+      // Rejected outright until 2026-08-14. HEIC is the default camera format on
+      // many phones, so refusing it meant telling a user their own gallery photo
+      // was unsupported. The Dart `image` package still cannot read these —
+      // `StaticEncoder` falls back to ffmpeg, which was device-verified to decode
+      // both HEIC and AVIF *before* this rejection was lifted.
+      expect(MediaKindResolver.of(mimeType: 'image/heic'), MediaKind.image);
+      expect(MediaKindResolver.of(mimeType: 'image/heif'), MediaKind.image);
+      expect(MediaKindResolver.of(mimeType: 'image/avif'), MediaKind.image);
+      // The extension path matters more than it looks: image_picker supplies NO
+      // mime type on Android, so this is the branch that actually runs.
+      expect(MediaKindResolver.of(path: '/tmp/IMG_0001.heic'), MediaKind.image);
+      expect(MediaKindResolver.of(path: '/tmp/IMG_0002.HEIF'), MediaKind.image);
+      expect(MediaKindResolver.of(path: '/tmp/IMG_0003.avif'), MediaKind.image);
     });
 
     test('returns null when the kind cannot be determined', () {

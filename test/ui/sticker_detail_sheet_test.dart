@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatsapp_sticker_studio/app/dependencies.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
+import 'package:whatsapp_sticker_studio/core/whatsapp_spec.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
 import 'package:whatsapp_sticker_studio/ui/sticker_detail_sheet.dart';
 
@@ -79,8 +80,27 @@ void main() {
     await settle(tester);
   }
 
-  Future<void> tapSave(WidgetTester tester) async {
-    await tester.tap(find.text('Save'));
+  /// Scrolls [finder] into view, then taps it.
+  ///
+  /// The sheet is a `SingleChildScrollView` and now taller than the viewport, so
+  /// a widget can be **built but positioned off-screen**. `tap` does not fail on
+  /// that — it derives an offset that hits nothing, so the test sees a silent
+  /// no-op rather than an error. A real user scrolls; so does this.
+  Future<void> tapAt(WidgetTester tester, Finder finder) async {
+    await tester.ensureVisible(finder);
+    await tester.pump();
+    await tester.tap(finder);
+    await settle(tester);
+  }
+
+  Future<void> tapSave(WidgetTester tester) => tapAt(tester, find.text('Save'));
+
+  /// Same reason as [tapAt]: a field scrolled out of view accepts no text, and
+  /// `enterText` reports no error when it silently does nothing.
+  Future<void> typeAt(WidgetTester tester, Finder finder, String text) async {
+    await tester.ensureVisible(finder);
+    await tester.pump();
+    await tester.enterText(finder, text);
     await settle(tester);
   }
 
@@ -113,7 +133,7 @@ void main() {
     final sticker = await saveSticker(manualName: 'old');
     await open(tester, sticker);
 
-    await tester.enterText(find.byKey(const Key('detail-name')), 'penguin');
+    await typeAt(tester, find.byKey(const Key('detail-name')), 'penguin');
     await tapSave(tester);
 
     expect((await deps.store.getSticker(sticker.id))!.manualName, 'penguin');
@@ -126,7 +146,7 @@ void main() {
     final sticker = await saveSticker(manualName: 'old');
     await open(tester, sticker);
 
-    await tester.enterText(find.byKey(const Key('detail-name')), 'penguin');
+    await typeAt(tester, find.byKey(const Key('detail-name')), 'penguin');
     await tapSave(tester);
 
     final hits = await deps.search.query('penguin');
@@ -137,7 +157,7 @@ void main() {
     final sticker = await saveSticker(manualTags: const ['friends']);
     await open(tester, sticker);
 
-    await tester.enterText(find.byKey(const Key('detail-add-tag')), 'holiday');
+    await typeAt(tester, find.byKey(const Key('detail-add-tag')), 'holiday');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await settle(tester);
     await tapSave(tester);
@@ -152,8 +172,7 @@ void main() {
     final sticker = await saveSticker(manualTags: const ['friends', 'holiday']);
     await open(tester, sticker);
 
-    await tester.tap(find.byKey(const Key('remove-tag-friends')));
-    await settle(tester);
+    await tapAt(tester, find.byKey(const Key('remove-tag-friends')));
     await tapSave(tester);
 
     expect((await deps.store.getSticker(sticker.id))!.manualTags, ['holiday']);
@@ -186,10 +205,9 @@ void main() {
     final sticker = await saveSticker(manualName: 'old', notes: 'keep me');
     await open(tester, sticker);
 
-    await tester.enterText(find.byKey(const Key('detail-name')), 'discarded');
-    await tester.enterText(find.byKey(const Key('detail-notes')), 'discarded');
-    await tester.tap(find.text('Cancel'));
-    await settle(tester);
+    await typeAt(tester, find.byKey(const Key('detail-name')), 'discarded');
+    await typeAt(tester, find.byKey(const Key('detail-notes')), 'discarded');
+    await tapAt(tester, find.text('Cancel'));
 
     final stored = (await deps.store.getSticker(sticker.id))!;
     expect(stored.manualName, 'old');
@@ -205,7 +223,7 @@ void main() {
     final sticker = await saveSticker(manualName: 'old');
     await open(tester, sticker);
 
-    await tester.enterText(find.byKey(const Key('detail-name')), '   ');
+    await typeAt(tester, find.byKey(const Key('detail-name')), '   ');
     await tapSave(tester);
 
     expect((await deps.store.getSticker(sticker.id))!.manualName, isNull);
@@ -218,8 +236,7 @@ void main() {
       final sticker = await saveSticker();
       await open(tester, sticker);
 
-      await tester.tap(find.text('Export file'));
-      await settle(tester);
+      await tapAt(tester, find.text('Export file'));
 
       expect(shareBackend.shared, [sticker.filePath]);
       expect((await deps.store.getSticker(sticker.id))!.usageCount, 1);
@@ -248,8 +265,7 @@ void main() {
       // it once this sheet is gone.
       await open(tester, await saveSticker());
 
-      await tester.tap(find.text('Add to pack'));
-      await settle(tester);
+      await tapAt(tester, find.text('Add to pack'));
 
       expect(result!.wantsAddToPack, isTrue);
       expect(find.byKey(const Key('detail-name')), findsNothing);
@@ -261,12 +277,96 @@ void main() {
       final sticker = await saveSticker(manualName: 'old');
       await open(tester, sticker);
 
-      await tester.enterText(find.byKey(const Key('detail-name')), 'penguin');
-      await tester.tap(find.text('Add to pack'));
-      await settle(tester);
+      await typeAt(tester, find.byKey(const Key('detail-name')), 'penguin');
+      await tapAt(tester, find.text('Add to pack'));
 
       expect((await deps.store.getSticker(sticker.id))!.manualName, 'penguin');
       expect(result!.changed, isTrue);
+    });
+  });
+
+  group('emoji for WhatsApp search', () {
+    testWidgets('tapping one selects it and Save persists it', (tester) async {
+      // These are the ONLY handle a user has once the pack leaves this app —
+      // name and tags are indexed by our search, which WhatsApp cannot see.
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await tapAt(tester, find.byKey(const Key('emoji-🔥')));
+      await tapSave(tester);
+
+      expect((await deps.store.getSticker(sticker.id))!.emojis, ['🔥']);
+    });
+
+    testWidgets('tapping a chosen one removes it', (tester) async {
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await tapAt(tester, find.byKey(const Key('emoji-🔥')));
+      await tapAt(tester, find.byKey(const Key('chosen-🔥')));
+      await tapSave(tester);
+
+      expect((await deps.store.getSticker(sticker.id))!.emojis, isEmpty);
+    });
+
+    testWidgets('stops at three, which is WhatsApp\'s limit', (tester) async {
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      for (final e in ['🔥', '🎉', '💯', '🚀']) {
+        await tapAt(tester, find.byKey(Key('emoji-$e')));
+      }
+      await tapSave(tester);
+
+      final stored = (await deps.store.getSticker(sticker.id))!;
+      expect(stored.emojis, hasLength(WhatsAppSpec.maxEmojisPerSticker));
+      expect(
+        stored.emojis,
+        isNot(contains('🚀')),
+        reason: 'the 4th is refused',
+      );
+    });
+
+    testWidgets('a custom emoji can be typed, beyond the grid', (tester) async {
+      // The grid is a shortcut, not a ceiling — a fixed list must not decide for
+      // the user which emoji exist.
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await typeAt(tester, find.byKey(const Key('emoji-custom')), '🦖');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await settle(tester);
+      await tapSave(tester);
+
+      expect((await deps.store.getSticker(sticker.id))!.emojis, ['🦖']);
+    });
+
+    testWidgets('a typed multi-code-unit emoji is not split in half', (
+      tester,
+    ) async {
+      // Slicing by index would cut a ZWJ sequence or a skin-tone pair into
+      // halves that render as tofu — hence `characters`, not `String`.
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await typeAt(tester, find.byKey(const Key('emoji-custom')), '👍🏽');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await settle(tester);
+      await tapSave(tester);
+
+      expect((await deps.store.getSticker(sticker.id))!.emojis, ['👍🏽']);
+    });
+
+    testWidgets('a skin tone applies to hand emoji', (tester) async {
+      final sticker = await saveSticker();
+      await open(tester, sticker);
+
+      await tapAt(tester, find.byKey(const Key('tone-medium')));
+      // The grid now offers the toned variant rather than the default.
+      await tapAt(tester, find.byKey(const Key('emoji-🤙🏽')));
+      await tapSave(tester);
+
+      expect((await deps.store.getSticker(sticker.id))!.emojis, ['🤙🏽']);
     });
   });
 
@@ -292,8 +392,7 @@ void main() {
       final sticker = await saveSticker();
       await open(tester, sticker);
 
-      await tester.tap(find.byKey(const Key('delete-sticker')));
-      await settle(tester);
+      await tapAt(tester, find.byKey(const Key('delete-sticker')));
       expect(find.byKey(const Key('confirm-delete')), findsOneWidget);
 
       await tapInDialog(tester, 'Cancel');
@@ -308,8 +407,7 @@ void main() {
       final sticker = await saveSticker();
       await open(tester, sticker);
 
-      await tester.tap(find.byKey(const Key('delete-sticker')));
-      await settle(tester);
+      await tapAt(tester, find.byKey(const Key('delete-sticker')));
       await tapInDialog(tester, 'Delete');
 
       expect(await deps.store.getSticker(sticker.id), isNull);
@@ -322,8 +420,7 @@ void main() {
       expect(await deps.search.query('penguin'), isNotEmpty);
 
       await open(tester, sticker);
-      await tester.tap(find.byKey(const Key('delete-sticker')));
-      await settle(tester);
+      await tapAt(tester, find.byKey(const Key('delete-sticker')));
       await tapInDialog(tester, 'Delete');
 
       // An orphaned index row would surface a hit that opens nothing.

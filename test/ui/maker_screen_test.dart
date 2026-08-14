@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:whatsapp_sticker_studio/app/dependencies.dart';
+import 'package:whatsapp_sticker_studio/sources/giphy_client.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
@@ -71,6 +76,8 @@ void main() {
     Encoder? stills,
     Encoder? motion,
     TaggingService? tagger,
+    Source Function(String)? xLinkSource,
+    Future<Source?> Function(BuildContext)? gifSource,
   }) async {
     deps = await testDependencies(tagger: tagger);
     addTearDown(deps.dispose);
@@ -89,6 +96,8 @@ void main() {
           controller: controller,
           // Injected so no real gallery or camera opens.
           sources: {'Gallery': source},
+          xLinkSource: xLinkSource,
+          gifSource: gifSource,
         ),
       ),
     );
@@ -402,4 +411,282 @@ void main() {
     expect(find.byKey(const Key('tagging-failed')), findsNothing);
     expect(find.text('dog'), findsOneWidget);
   });
+
+  group('the X link button', () {
+    /// Drives the button's dialog with [link] and returns once the pick is done.
+    Future<void> pasteLink(WidgetTester tester, String link) async {
+      await tester.tap(find.byKey(const Key('x-link-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('x-link-field')), link);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('x-link-submit')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('is hidden when the build has no extractor configured', (
+      tester,
+    ) async {
+      // test dependencies carry no service address, which is also the state of
+      // a release build made without --dart-define. A button that could only
+      // ever fail is worse than no button.
+      await pump(tester, source: FakeSource(image()));
+
+      expect(find.byKey(const Key('x-link-button')), findsNothing);
+    });
+
+    testWidgets('turns a pasted link into media on the Maker', (tester) async {
+      // The whole point: the post's video lands in the same editor as a gallery
+      // pick, with the same fit modes and the same Save.
+      String? asked;
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        xLinkSource: (link) {
+          asked = link;
+          return FakeSource(video());
+        },
+      );
+
+      await pasteLink(tester, 'https://x.com/a/status/2087646138526802000?s=9');
+
+      expect(
+        asked,
+        'https://x.com/i/status/2087646138526802000',
+        reason: 'normalised before it leaves the app',
+      );
+      expect(find.byKey(const Key('sticker-preview')), findsOneWidget);
+    });
+
+    testWidgets('a failure is shown, not swallowed as a cancel', (
+      tester,
+    ) async {
+      // This is the whole reason SourceException exists. Returning null meant a
+      // dead network and a video-less post both left the screen inert, which
+      // reads as a broken app rather than a bad link.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        xLinkSource: (_) =>
+            ThrowingSource('No video could be found in this tweet'),
+      );
+
+      await pasteLink(tester, 'https://x.com/a/status/2087646138526802000');
+
+      // Verbatim: the service's wording separates "no video here" from "post
+      // not found" from an outage, and we cannot tell those apart ourselves.
+      expect(
+        find.text('No video could be found in this tweet'),
+        findsOneWidget,
+      );
+
+      // And it takes itself away again. Found on device: the banner sat on the
+      // Maker indefinitely after a mistyped link, long after it had been read.
+      // Nothing can be acted on from it — the remedy is a different link.
+      await tester.pump(
+        const Duration(seconds: 5) + const Duration(seconds: 1),
+      );
+
+      expect(find.text('No video could be found in this tweet'), findsNothing);
+    });
+
+    testWidgets('never covers Add to WhatsApp', (tester) async {
+      // A floating button sits over the bottom-right of the body, and the list
+      // ends with the export card — the single most important action here. The
+      // list's bottom padding is what keeps them apart, so this asserts the
+      // geometry rather than the padding value: the constant can change, the
+      // overlap must not come back.
+      final controller = await pump(
+        tester,
+        source: FakeSource(image()),
+        xLinkSource: (_) => FakeSource(video()),
+      );
+
+      await tester.tap(find.text('Gallery'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Save sticker'));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await controller.pendingTagging;
+      });
+      await tester.pump();
+      await scrollToBottom(tester);
+
+      await tester.tap(find.byKey(const Key('add-to-pack')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('New pack'));
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('pack-name')), 'Road trip');
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Create'));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await settleUntil(tester, () => present(const Key('export-card')));
+
+      // Scrolled hard to the bottom, which is exactly where the two would
+      // collide if the list had no clearance.
+      await tester.drag(find.byType(ListView), const Offset(0, -2000));
+      await tester.pumpAndSettle();
+
+      final exportButton = tester.getRect(
+        find.byKey(const Key('export-button')),
+      );
+      final fab = tester.getRect(find.byKey(const Key('x-link-button')));
+
+      expect(
+        exportButton.overlaps(fab),
+        isFalse,
+        reason:
+            'the X button covered Add to WhatsApp — the list needs bottom '
+            'padding at least as tall as the button plus its margin',
+      );
+    });
+  });
+
+  group('the GIF button', () {
+    testWidgets('is hidden when the build has no Giphy key', (tester) async {
+      // test dependencies carry no key, which is also the state of a release
+      // build made without --dart-define. A button that could only ever fail is
+      // worse than an absent one.
+      await pump(tester, source: FakeSource(image()));
+
+      expect(find.byKey(const Key('source-gif')), findsNothing);
+    });
+
+    testWidgets('a chosen GIF loads into the Maker like any other media', (
+      tester,
+    ) async {
+      // The point of routing through pickFrom: a Giphy pick gets the same
+      // preview, fit modes, trim and Save as a gallery clip, with no special
+      // casing anywhere downstream.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        gifSource: (_) async => FakeSource(video()),
+      );
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sticker-preview')), findsOneWidget);
+    });
+
+    testWidgets('backing out of the picker changes nothing', (tester) async {
+      // Cancelling is an ordinary choice, not a failure — no banner, no media,
+      // no snackbar.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        gifSource: (_) async => null,
+      );
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pumpAndSettle();
+
+      // Still the untouched opening state: no media, and no complaint about
+      // something the user chose to do.
+      expect(find.byKey(const Key('sticker-preview')), findsNothing);
+      expect(find.text('Pick a photo or clip to begin.'), findsOneWidget);
+    });
+
+    testWidgets('the REAL picker path works end to end', (tester) async {
+      // Every other test here injects a stub source, which leaves the wiring
+      // production actually uses — build a client from the key, open the
+      // picker, wrap the chosen gif in a GiphySource — completely untested.
+      // This drives the whole thing over a mocked transport instead.
+      final deps = await testDependencies(
+        giphy: GiphyClient(
+          MockClient(
+            (req) async => http.Response(
+              jsonEncode({
+                'data': [
+                  {
+                    'id': 'g1',
+                    'title': 'a gif',
+                    'images': {
+                      'preview_gif': {'url': 'https://x/p.gif'},
+                      'original': {'mp4': 'https://x/o.mp4'},
+                    },
+                  },
+                ],
+                'pagination': {'total_count': 1, 'offset': 0},
+              }),
+              200,
+            ),
+          ),
+          apiKey: 'k',
+        ),
+        // Answers the mp4 download that GiphySource makes after the pick.
+        httpClient: MockClient(
+          (req) async => http.Response.bytes(onePixelPng(), 200),
+        ),
+      );
+      addTearDown(deps.dispose);
+
+      final controller = MakerController(
+        deps: deps,
+        staticEncoder: PngEncoder(),
+        animatedEncoder: PngEncoder(kind: StickerKind.animated),
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MakerScreen(dependencies: deps, controller: controller),
+        ),
+      );
+      await tester.pump();
+
+      // The key is present, so the button exists without being injected.
+      expect(find.byKey(const Key('source-gif')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('giphy-grid')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('giphy-gif-g1')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sticker-preview')), findsOneWidget);
+    });
+
+    testWidgets('a failed download is shown, then clears itself', (
+      tester,
+    ) async {
+      // GiphySource throws SourceException rather than returning null, so this
+      // reaches the same banner as a bad X link — and self-clears for the same
+      // reason: nothing can be acted on from it.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        gifSource: (_) async =>
+            ThrowingSource("That GIF couldn't be downloaded (HTTP 404)."),
+      );
+
+      await tester.tap(find.byKey(const Key('source-gif')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("That GIF couldn't be downloaded (HTTP 404)."),
+        findsOneWidget,
+      );
+
+      await tester.pump(const Duration(seconds: 6));
+
+      expect(
+        find.text("That GIF couldn't be downloaded (HTTP 404)."),
+        findsNothing,
+      );
+    });
+  });
+}
+
+/// A source that fails the way a remote one does.
+class ThrowingSource implements Source {
+  ThrowingSource(this.message);
+  final String message;
+
+  @override
+  Future<MediaHandle?> pick() async => throw SourceException(message);
 }

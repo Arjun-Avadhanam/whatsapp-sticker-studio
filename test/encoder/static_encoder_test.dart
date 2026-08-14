@@ -54,6 +54,23 @@ int _redAt(Uint8List rgba, int width, int x, int y) =>
 MediaHandle handleOf(Uint8List bytes) =>
     MediaHandle(bytes: bytes, kind: MediaKind.image);
 
+/// Stands in for ffmpeg: counts calls and returns whatever it is told to.
+///
+/// Counting is the point — the fallback spawns a process and writes temp files,
+/// so it must fire *only* when the pure-Dart decode has already failed.
+class FakeTranscoder implements ImageTranscoder {
+  FakeTranscoder({this.result});
+
+  final Uint8List? result;
+  int calls = 0;
+
+  @override
+  Future<Uint8List?> toPng(Uint8List bytes) async {
+    calls++;
+    return result;
+  }
+}
+
 void main() {
   late FakeWebpEncoder webp;
   late StaticEncoder encoder;
@@ -143,5 +160,71 @@ void main() {
       ),
       throwsA(isA<EncoderException>()),
     );
+  });
+
+  group('transcoder fallback (HEIC)', () {
+    test('is NOT used when the image decodes normally', () async {
+      // It spawns a process and writes temp files, so paying that on every
+      // ordinary PNG would be a real cost for nothing.
+      final transcoder = FakeTranscoder(result: solidPng(64, 64));
+      final encoder = StaticEncoder(webp, transcoder: transcoder);
+
+      await encoder.encode(handleOf(solidPng(512, 512)), const EncodeParams());
+
+      expect(transcoder.calls, 0);
+    });
+
+    test('rescues an image the Dart decoder cannot read', () async {
+      // Stands for the real case: HEIC bytes, which the `image` package has no
+      // decoder for but ffmpeg does.
+      final transcoder = FakeTranscoder(result: solidPng(1024, 768));
+      final encoder = StaticEncoder(webp, transcoder: transcoder);
+
+      final out = await encoder.encode(
+        handleOf(Uint8List.fromList([1, 2, 3, 4, 5])),
+        const EncodeParams(fitMode: FitMode.pad),
+      );
+
+      expect(transcoder.calls, 1);
+      expect(out.width, 512);
+      expect(out.height, 512);
+      // Genuinely went through the normal path afterwards, rather than being
+      // special-cased into some other shape.
+      expect(webp.lastWidth, 512);
+    });
+
+    test('a transcoded image still gets the SAME fit geometry', () async {
+      // The fallback must only change how bytes are decoded, never what the
+      // sticker looks like — a HEIC photo should letterbox exactly like the JPEG
+      // of the same picture.
+      final transcoder = FakeTranscoder(result: solidPng(1024, 512));
+      final encoder = StaticEncoder(webp, transcoder: transcoder);
+
+      await encoder.encode(
+        handleOf(Uint8List.fromList([9, 9, 9])),
+        const EncodeParams(fitMode: FitMode.pad),
+      );
+
+      final rgba = webp.lastRgba!;
+      // 2:1 source padded into a square leaves transparent bars top and bottom
+      // and opaque content across the middle.
+      expect(_alphaAt(rgba, 512, 256, 4), 0, reason: 'top bar transparent');
+      expect(_redAt(rgba, 512, 256, 256), 255, reason: 'content in the middle');
+    });
+
+    test('both decoders failing still gives a clean EncoderException', () async {
+      // A format neither can read — the user gets one honest error, not a crash.
+      final transcoder = FakeTranscoder(); // returns null
+      final encoder = StaticEncoder(webp, transcoder: transcoder);
+
+      await expectLater(
+        encoder.encode(
+          handleOf(Uint8List.fromList([1, 2, 3])),
+          const EncodeParams(),
+        ),
+        throwsA(isA<EncoderException>()),
+      );
+      expect(transcoder.calls, 1, reason: 'it should at least have tried');
+    });
   });
 }

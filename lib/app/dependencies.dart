@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -20,6 +21,7 @@ import '../library/library_store.dart';
 import '../packs/pack_service.dart';
 import '../search/search_service.dart';
 import '../sharing/sharing_service.dart';
+import '../sources/extraction_client.dart';
 import '../tagger/mlkit_tagger.dart';
 import '../tagger/tagging_orchestrator.dart';
 import '../tagger/tagging_service.dart';
@@ -32,7 +34,7 @@ import '../tagger/tagging_service.dart';
 /// without a device so far. Do not reach for a service locator or construct a
 /// `NativeWebpEncoder` inside a widget; both would quietly undo that.
 class AppDependencies {
-  const AppDependencies({
+  AppDependencies({
     required this.database,
     required this.store,
     required this.search,
@@ -47,7 +49,9 @@ class AppDependencies {
     required this.packs,
     required this.sharing,
     required this.stickerDirectory,
-  });
+    this.extraction,
+    http.Client? httpClient,
+  }) : httpClient = httpClient ?? http.Client();
 
   final AppDatabase database;
   final LibraryStore store;
@@ -76,6 +80,28 @@ class AppDependencies {
 
   /// Where encoded stickers and thumbnails live.
   final Directory stickerDirectory;
+
+  /// Resolves an X post to a video URL, or **null when no extractor is
+  /// configured** — in which case the Maker hides the X button entirely.
+  ///
+  /// Nullable on purpose. The service is self-hosted and its address is supplied
+  /// at build time ([extractorBaseUrl]); a build without one has no working
+  /// feature, and a visible button that always fails is worse than no button.
+  final ExtractionClient? extraction;
+
+  /// Shared by the remote sources. One client, so connections are pooled rather
+  /// than a fresh socket per download.
+  final http.Client httpClient;
+
+  /// Where the extractor service lives, supplied at build time:
+  ///
+  /// ```
+  /// flutter build apk --dart-define=EXTRACTOR_BASE_URL=https://…
+  /// ```
+  ///
+  /// Not a checked-in constant because it changes with the deploy target, and
+  /// not a runtime setting because a user has no way to know one.
+  static const extractorBaseUrl = String.fromEnvironment('EXTRACTOR_BASE_URL');
 
   /// Builds the real implementations. Device-only: the encoders, tagger and
   /// embedder all reach across platform channels.
@@ -128,6 +154,7 @@ class AppDependencies {
     }
 
     final tagger = MlKitTagger();
+    final httpClient = http.Client();
     const animated = AnimatedEncoder();
     final stager = PackStager();
     final exporter = WhatsAppExporter(
@@ -169,10 +196,17 @@ class AppDependencies {
       ),
       sharing: SharingService(const PlatformShareBackend(), store),
       stickerDirectory: stickerDir,
+      // Absent unless the build was given a service address. The Maker keys the
+      // X button off this, so an unconfigured build simply does not offer it.
+      extraction: extractorBaseUrl.isEmpty
+          ? null
+          : ExtractionClient(httpClient, Uri.parse(extractorBaseUrl)),
+      httpClient: httpClient,
     );
   }
 
   Future<void> dispose() async {
+    httpClient.close();
     await database.close();
   }
 }

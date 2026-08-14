@@ -71,6 +71,7 @@ void main() {
     Encoder? stills,
     Encoder? motion,
     TaggingService? tagger,
+    Source Function(String)? xLinkSource,
   }) async {
     deps = await testDependencies(tagger: tagger);
     addTearDown(deps.dispose);
@@ -89,6 +90,7 @@ void main() {
           controller: controller,
           // Injected so no real gallery or camera opens.
           sources: {'Gallery': source},
+          xLinkSource: xLinkSource,
         ),
       ),
     );
@@ -402,4 +404,135 @@ void main() {
     expect(find.byKey(const Key('tagging-failed')), findsNothing);
     expect(find.text('dog'), findsOneWidget);
   });
+
+  group('the X link button', () {
+    /// Drives the button's dialog with [link] and returns once the pick is done.
+    Future<void> pasteLink(WidgetTester tester, String link) async {
+      await tester.tap(find.byKey(const Key('x-link-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('x-link-field')), link);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('x-link-submit')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('is hidden when the build has no extractor configured', (
+      tester,
+    ) async {
+      // test dependencies carry no service address, which is also the state of
+      // a release build made without --dart-define. A button that could only
+      // ever fail is worse than no button.
+      await pump(tester, source: FakeSource(image()));
+
+      expect(find.byKey(const Key('x-link-button')), findsNothing);
+    });
+
+    testWidgets('turns a pasted link into media on the Maker', (tester) async {
+      // The whole point: the post's video lands in the same editor as a gallery
+      // pick, with the same fit modes and the same Save.
+      String? asked;
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        xLinkSource: (link) {
+          asked = link;
+          return FakeSource(video());
+        },
+      );
+
+      await pasteLink(tester, 'https://x.com/a/status/2087646138526802000?s=9');
+
+      expect(
+        asked,
+        'https://x.com/i/status/2087646138526802000',
+        reason: 'normalised before it leaves the app',
+      );
+      expect(find.byKey(const Key('sticker-preview')), findsOneWidget);
+    });
+
+    testWidgets('a failure is shown, not swallowed as a cancel', (
+      tester,
+    ) async {
+      // This is the whole reason SourceException exists. Returning null meant a
+      // dead network and a video-less post both left the screen inert, which
+      // reads as a broken app rather than a bad link.
+      await pump(
+        tester,
+        source: FakeSource.cancelled(),
+        xLinkSource: (_) =>
+            ThrowingSource('No video could be found in this tweet'),
+      );
+
+      await pasteLink(tester, 'https://x.com/a/status/2087646138526802000');
+
+      // Verbatim: the service's wording separates "no video here" from "post
+      // not found" from an outage, and we cannot tell those apart ourselves.
+      expect(
+        find.text('No video could be found in this tweet'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('never covers Add to WhatsApp', (tester) async {
+      // A floating button sits over the bottom-right of the body, and the list
+      // ends with the export card — the single most important action here. The
+      // list's bottom padding is what keeps them apart, so this asserts the
+      // geometry rather than the padding value: the constant can change, the
+      // overlap must not come back.
+      final controller = await pump(
+        tester,
+        source: FakeSource(image()),
+        xLinkSource: (_) => FakeSource(video()),
+      );
+
+      await tester.tap(find.text('Gallery'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Save sticker'));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await controller.pendingTagging;
+      });
+      await tester.pump();
+      await scrollToBottom(tester);
+
+      await tester.tap(find.byKey(const Key('add-to-pack')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('New pack'));
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('pack-name')), 'Road trip');
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Create'));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await settleUntil(tester, () => present(const Key('export-card')));
+
+      // Scrolled hard to the bottom, which is exactly where the two would
+      // collide if the list had no clearance.
+      await tester.drag(find.byType(ListView), const Offset(0, -2000));
+      await tester.pumpAndSettle();
+
+      final exportButton = tester.getRect(
+        find.byKey(const Key('export-button')),
+      );
+      final fab = tester.getRect(find.byKey(const Key('x-link-button')));
+
+      expect(
+        exportButton.overlaps(fab),
+        isFalse,
+        reason:
+            'the X button covered Add to WhatsApp — the list needs bottom '
+            'padding at least as tall as the button plus its margin',
+      );
+    });
+  });
+}
+
+/// A source that fails the way a remote one does.
+class ThrowingSource implements Source {
+  ThrowingSource(this.message);
+  final String message;
+
+  @override
+  Future<MediaHandle?> pick() async => throw SourceException(message);
 }

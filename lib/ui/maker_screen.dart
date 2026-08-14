@@ -8,9 +8,11 @@ import '../sources/gallery_source.dart';
 import '../models/sticker_record.dart';
 import '../models/pack_record.dart';
 import '../sources/source.dart';
+import '../sources/xlink_source.dart';
 import 'add_to_pack_sheet.dart';
 import 'export_pack_action.dart';
 import 'maker_controller.dart';
+import 'x_link_button.dart';
 
 /// Turn a picked image or clip into a compliant sticker.
 ///
@@ -22,6 +24,7 @@ class MakerScreen extends StatefulWidget {
     required this.dependencies,
     this.controller,
     this.sources,
+    this.xLinkSource,
   });
 
   final AppDependencies dependencies;
@@ -32,9 +35,20 @@ class MakerScreen extends StatefulWidget {
   /// Injectable for widget tests, which must not open real system pickers.
   final Map<String, Source>? sources;
 
+  /// Builds the source for a pasted X link. Injectable for widget tests, which
+  /// must not reach the network.
+  ///
+  /// Unlike [sources] this is a *builder*: the link is only known once the user
+  /// has typed it, so the source cannot exist before then.
+  final Source Function(String link)? xLinkSource;
+
   @override
   State<MakerScreen> createState() => _MakerScreenState();
 }
+
+/// Space kept below the Maker's content so the floating X button cannot sit on
+/// top of it. See the note at its use site.
+const _fabClearance = 136.0;
 
 class _MakerScreenState extends State<MakerScreen> {
   late final MakerController _controller =
@@ -42,6 +56,18 @@ class _MakerScreenState extends State<MakerScreen> {
 
   late final Map<String, Source> _sources =
       widget.sources ?? {'Gallery': GallerySource(), 'Camera': CameraSource()};
+
+  /// Null when no extractor service is configured for this build — the X button
+  /// is then hidden rather than shown as something that always fails.
+  late final Source Function(String)? _xLinkSource =
+      widget.xLinkSource ?? _defaultXLinkSource;
+
+  Source Function(String)? get _defaultXLinkSource {
+    final extraction = widget.dependencies.extraction;
+    if (extraction == null) return null;
+    return (link) =>
+        XLinkSource(extraction, widget.dependencies.httpClient, link);
+  }
 
   @override
   void initState() {
@@ -144,8 +170,27 @@ class _MakerScreenState extends State<MakerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Hidden, not disabled, when the build has no extractor configured: a
+      // permanently failing button is worse than an absent one.
+      floatingActionButton: _xLinkSource == null
+          ? null
+          : XLinkButton(
+              onLink: (link) => _controller.pickFrom(_xLinkSource(link)),
+            ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        // The bottom padding is the floating button's clearance, and it is
+        // load-bearing. The list ends with the export card — "Add to WhatsApp",
+        // the most important action on the screen — and the button floats over
+        // the bottom-right corner of the body. Without room to scroll past it,
+        // the button covers that action at exactly the moment it matters.
+        //
+        // Measured, not guessed: a 48 px small FAB sits 64 px up from the
+        // bottom, so it occupies the last 112 px. An earlier 88 px looked
+        // generous and still overlapped by 8 px. `_fabClearance` leaves a real
+        // gap on top of that, and the geometry is pinned by a test — this
+        // number will drift the day the button's size or position changes, and
+        // the test is what will say so.
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, _fabClearance),
         children: [
           _SourceButtons(
             sources: _sources,

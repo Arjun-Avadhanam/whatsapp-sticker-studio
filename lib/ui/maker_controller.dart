@@ -60,8 +60,35 @@ class MakerController extends ChangeNotifier {
   ///
   /// A `null` from [source] means the user cancelled — an ordinary outcome that
   /// leaves the screen exactly as it was, with no error.
+  ///
+  /// A [SourceException] means it genuinely failed, and its message is shown
+  /// verbatim in the error banner. The two are kept apart deliberately: a remote
+  /// source fails far more often than a local one, and treating a failure as a
+  /// cancel makes the app look broken rather than the link.
   Future<void> pickFrom(Source source) async {
-    final picked = await source.pick();
+    // Busy for the duration of the pick, not just the encode that follows. A
+    // local picker returns the moment the user taps, but a remote source spends
+    // seconds on the network first, and without this the screen sits inert with
+    // no indication anything is happening. It also stops a second tap starting
+    // a competing fetch.
+    _busy = true;
+    _error = null; // a retry must not sit under the previous failure
+    notifyListeners();
+
+    final MediaHandle? picked;
+    try {
+      picked = await source.pick();
+    } on SourceException catch (e) {
+      _error = e.message;
+      return;
+    } finally {
+      // Released here rather than after loadMedia: _encode owns the flag from
+      // that point, and leaving it set through both would make the two states
+      // impossible to tell apart on the way out.
+      _busy = false;
+      notifyListeners();
+    }
+
     if (picked == null) return;
     await loadMedia(picked);
   }

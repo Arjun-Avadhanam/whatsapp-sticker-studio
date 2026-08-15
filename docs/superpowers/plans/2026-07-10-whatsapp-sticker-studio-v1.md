@@ -84,7 +84,7 @@ whatsapp-sticker-project/
 **Branch:** work directly on `main` for the initial scaffold (bootstrap is not a feature).
 
 **Files:**
-- Create: `/home/arjun/whatsapp-sticker-project/` (Flutter project root)
+- Create: `~/whatsapp-sticker-project/` (Flutter project root)
 - Create: `CLAUDE.md`, `.gitignore`, `analysis_options.yaml`
 - Create: `test/smoke_test.dart`, `.github/workflows/ci.yml`
 
@@ -95,9 +95,9 @@ whatsapp-sticker-project/
 - [x] **Step 1: Create the Flutter project**
 
 ```bash
-cd /home/arjun
+cd ~
 flutter create --org com.arjun --project-name whatsapp_sticker_studio --platforms=android whatsapp-sticker-project
-cd /home/arjun/whatsapp-sticker-project
+cd ~/whatsapp-sticker-project
 ```
 
 - [x] **Step 2: Write `CLAUDE.md`** (repo-root, so rules load wherever the repo is worked on)
@@ -153,7 +153,7 @@ the "full testing before done" rule instead of relying on memory.
 - [x] **Step 5: Init git, first commit**
 
 ```bash
-cd /home/arjun/whatsapp-sticker-project
+cd ~/whatsapp-sticker-project
 git init
 git add -A
 git commit -m "chore: bootstrap Flutter project, CLAUDE.md, smoke test"

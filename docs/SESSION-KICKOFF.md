@@ -85,7 +85,7 @@ homogeneous — with an agreed silent-promotion strategy for statics joining ani
 - CI (`.github/workflows/ci.yml`) runs format → analyze → test → debug APK on every push/PR.
 
 **Device access: SOLVED (2026-07-29)** via `usbipd-win` — see `CLAUDE.md`. Phone is A059P /
-Android 16 (API 36), BUSID `2-4`, serial `00178358P000397`. Note that `adb.exe` on the *Windows*
+Android 16 (API 36), BUSID `2-4`, serial `<device-serial>`. Note that `adb.exe` on the *Windows*
 side will steal the device from WSL; kill that server if `attach` reports "Device busy".
 
 **Also pending:** the tiny extraction service for Task 8B (`services/extractor/`, FastAPI + yt-dlp)

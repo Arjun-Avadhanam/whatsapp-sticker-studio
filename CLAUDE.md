@@ -761,11 +761,11 @@ icon (`tool/make_app_icon.py`). Both are checked-in generated artefacts that not
 **A USB cable alone does nothing: WSL2 has no USB stack.** The phone attaches to the Windows kernel;
 WSL is a separate VM, so `adb devices` in WSL is empty by design — it is not an adb bug. (Wireless
 `adb pair` also fails here under NAT networking with `protocol fault (couldn't read status message)`.
-The sibling DaySync project never solved this and sideloaded APKs to `/mnt/c/Users/arjun/Downloads/`
+The sibling DaySync project never solved this and sideloaded APKs to `/mnt/c/Users/<user>/Downloads/`
 instead — viable, but it gives up hot reload, logcat and `integration_test`, so it is not our route.)
 
 **Working setup — `usbipd-win` forwards the USB device into WSL.** Device: **A059P, Android 16
-(API 36)**, serial `00178358P000397`, USB id `18d1:4e11`, usbipd **BUSID 2-4**.
+(API 36)**, serial `<device-serial>`, USB id `18d1:4e11`, usbipd **BUSID 2-4**.
 
 One-time (Windows PowerShell **as admin**; `winget install usbipd`):
 ```powershell
@@ -791,7 +791,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 **Three failure modes, each with a distinct symptom:**
 - `attach` → **"Device busy (exported)"** — a **Windows** adb server has claimed the phone. Fix:
-  `"/mnt/c/Users/arjun/AppData/Local/Android/Sdk/platform-tools/adb.exe" kill-server`. Note that
+  `"/mnt/c/Users/<user>/AppData/Local/Android/Sdk/platform-tools/adb.exe" kill-server`. Note that
   running `adb.exe devices` **restarts** that daemon, re-breaking it — don't re-query after killing.
 - `adb devices` → **"no permissions"** — the udev rule is missing or hasn't applied yet.
   `udevadm trigger` is **asynchronous**, so adb can scan too early; just restart adb afterwards.
@@ -803,7 +803,7 @@ Four WSL distros are installed and `Ubuntu-20.04` is the default, but **this pro
 one kernel, so the device is visible in all of them.
 
 Verify with `flutter devices`; run device tests with
-`flutter test integration_test/<file> -d 00178358P000397`.
+`flutter test integration_test/<file> -d <device-serial>`.
 
 ## Search (Task 10 — keyword half done 2026-08-01; semantic half deferred)
 

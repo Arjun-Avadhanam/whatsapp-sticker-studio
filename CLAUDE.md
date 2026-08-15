@@ -761,7 +761,7 @@ icon (`tool/make_app_icon.py`). Both are checked-in generated artefacts that not
 **A USB cable alone does nothing: WSL2 has no USB stack.** The phone attaches to the Windows kernel;
 WSL is a separate VM, so `adb devices` in WSL is empty by design — it is not an adb bug. (Wireless
 `adb pair` also fails here under NAT networking with `protocol fault (couldn't read status message)`.
-The sibling DaySync project never solved this and sideloaded APKs to `/mnt/c/Users/<user>/Downloads/`
+A sibling project never solved this and sideloaded APKs to `/mnt/c/Users/<user>/Downloads/`
 instead — viable, but it gives up hot reload, logcat and `integration_test`, so it is not our route.)
 
 **Working setup — `usbipd-win` forwards the USB device into WSL.** Device: **A059P, Android 16
@@ -834,7 +834,7 @@ schema migration, and repairing a drifted index.
   matches*, hence the negation. Usage is **logarithmic** so one heavily-sent sticker cannot outrank
   genuinely better text matches and turn search into a most-used list.
 - **User input is never passed raw to `MATCH`.** FTS5's MATCH is a query language where `"`, `*`,
-  `^`, `(`, `)` are operators and AND/OR/NOT/NEAR are keywords — an apostrophe in "Arjun's face"
+  `^`, `(`, `)` are operators and AND/OR/NOT/NEAR are keywords — an apostrophe in "Ana's face"
   would be a syntax error, i.e. a crash on ordinary input. Each term is quoted into a literal phrase.
 
 ## ⛔ SEMANTIC SEARCH IS CUT FROM v1 — keyword only (decided 2026-08-13)

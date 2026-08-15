@@ -1076,7 +1076,7 @@ test('usageCount breaks ties in ranking', () async {
   - *Ranking is `-bm25() + usageWeight * log(1 + usageCount)` — **logarithmic** so a heavily-used
     sticker cannot outrank far better text matches.*
   - ***User input is never passed raw to `MATCH`***: FTS5 is a query language, so an apostrophe in
-    "Arjun's face" would otherwise be a syntax error — a crash on ordinary input.*
+    "Ana's face" would otherwise be a syntax error — a crash on ordinary input.*
   - ***Semantic layer: MediaPipe Universal Sentence Encoder***, *5.8 MB (measured), 100-dimensional,
     bundled as an Android asset and driven from Kotlin — **not** `tflite_flutter`, because USE needs
     SentencePiece tokenisation that a raw TFLite interpreter cannot supply.*

@@ -284,7 +284,7 @@ class FtsSearchService implements SearchService {
   ///
   /// FTS5's MATCH is a query *language*: `"` quotes phrases, `*` is a prefix
   /// operator, `^` anchors, `(`/`)` group, and AND/OR/NOT/NEAR are keywords.
-  /// Passing user text through raw means an apostrophe in "Arjun's face", or a
+  /// Passing user text through raw means an apostrophe in "Ana's face", or a
   /// stray quote, becomes a syntax error rather than a search — a crash on
   /// completely ordinary input.
   ///

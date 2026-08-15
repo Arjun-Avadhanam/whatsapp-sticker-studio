@@ -71,7 +71,7 @@ flutter build apk --debug --dart-define=GIPHY_API_KEY=your_key_here
 The Giphy key is the only build-time input, and it is optional. Without it the app simply does not
 show the GIF button. Nothing else needs configuring.
 
-Do not commit the key. `giphy_api_key.txt` is git-ignored and exists so local builds can read it:
+Do not commit the key. `giphy_api_key.txt` (probably better to use a .env lol) is git-ignored and exists so local builds can read it:
 
 ```bash
 flutter build apk --debug --dart-define=GIPHY_API_KEY=$(cat giphy_api_key.txt)

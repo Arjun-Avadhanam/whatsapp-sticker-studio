@@ -189,16 +189,16 @@ void main() {
 
     test('FTS5 operator characters in a query do not blow up', () async {
       // FTS5's MATCH has its own syntax: ", *, ^, ( and ) are operators, and
-      // NEAR/AND/OR are keywords. An unescaped apostrophe in "Arjun's face" or a
+      // NEAR/AND/OR are keywords. An unescaped apostrophe in "Ana's face" or a
       // stray quote would otherwise turn an ordinary search into a syntax error
       // — a crash on completely normal user input.
-      await save([stickerOf(id: '1', manualName: "Arjun's face")]);
+      await save([stickerOf(id: '1', manualName: "Ana's face")]);
 
       // `expect(() async => ..., returnsNormally)` would pass vacuously here:
       // it only proves the closure returns a Future without throwing
       // *synchronously*, so the query itself is never awaited and any real
       // failure surfaces long after the test has finished. Await each one.
-      for (final q in ['"', "Arjun's", 'a*', '^b', '(c)', 'AND', 'x OR y']) {
+      for (final q in ['"', "Ana's", 'a*', '^b', '(c)', 'AND', 'x OR y']) {
         await expectLater(
           search.query(q),
           completes,

@@ -199,9 +199,10 @@ is cheap to repeat; a hand-built library is not.
   - **Re-attaching usbipd did NOT fix it**, which is what ruled the link out. `adb install` stalled
     at ~8.5 MB on a freshly attached link and ~11 MB on the next attempt; both times the adb
     server's `rchar` went to exactly zero and stayed there.
-  - **`adb kill-server` silently drops every `adb reverse` mapping.** Re-run
-    `adb reverse tcp:8000 tcp:8010` after any server restart or the tethered extractor goes dead —
-    which looks exactly like a broken feature.
+  - **`adb kill-server` silently drops every `adb reverse` mapping.** Nothing in the app needs one
+    any more (X links are resolved on the phone), but if you ever tether a local service again,
+    re-establish the mapping after any server restart — a dropped forward looks exactly like a
+    broken feature.
   - Prefer push+install as the **default** for this project's debug APK. It is ~40 s, it is
     observable (the file grows), and it does not depend on the streamed-install path at all.
 
@@ -1112,4 +1113,17 @@ than not.
 - Implementation plan: `docs/superpowers/plans/2026-07-10-whatsapp-sticker-studio-v1.md`
 
 ## Tech stack
-Flutter (Dart) · Kotlin native glue · drift (SQLite + FTS5) · ffmpeg_kit_flutter + libwebp · Google ML Kit on-device (labeling + OCR) · on-device TFLite embeddings · Giphy HTTP API (free tier).
+Flutter (Dart) · Kotlin native glue · drift (SQLite + FTS5) · ffmpeg_kit_flutter_new_video + libwebp ·
+Google ML Kit on-device (labeling + OCR) · Giphy HTTP API (free tier) · X syndication endpoint.
+On-device TFLite embeddings exist in the tree but are **switched off** (see the semantic-search
+section). `services/extractor/` (FastAPI + yt-dlp) is retained as a fallback and is **not** in the
+request path.
+
+## Build
+
+```bash
+flutter build apk --debug --dart-define=GIPHY_API_KEY=$(cat giphy_api_key.txt)
+```
+
+`GIPHY_API_KEY` is the **only** build-time input, and without it the GIF button simply does not
+appear. Nothing else needs configuring: X links resolve on the phone, and everything else is local.

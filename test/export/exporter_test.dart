@@ -84,7 +84,7 @@ void main() {
     exporter = WhatsAppExporter(
       validator: StickerValidator(FakeMediaProbe()),
       channel: channel,
-      authority: 'com.arjun.whatsapp_sticker_studio.stickercontentprovider',
+      authority: 'com.stickerstudio.app.stickercontentprovider',
     );
   });
 

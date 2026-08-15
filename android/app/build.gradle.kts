@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.arjun.whatsapp_sticker_studio"
+    namespace = "com.stickerstudio.app"
     // Pinned to 37 rather than flutter.compileSdkVersion (36): receive_sharing_intent
     // 1.9.0 declares an AAR metadata minimum of 37 and the build fails outright
     // below it. compileSdk only controls which APIs we may reference — it does not
@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.arjun.whatsapp_sticker_studio"
+        applicationId = "com.stickerstudio.app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

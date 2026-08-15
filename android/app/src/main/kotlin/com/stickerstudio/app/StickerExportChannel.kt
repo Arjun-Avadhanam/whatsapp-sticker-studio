@@ -1,4 +1,4 @@
-package com.arjun.whatsapp_sticker_studio
+package com.stickerstudio.app
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -15,7 +15,7 @@ import io.flutter.plugin.common.MethodChannel
 class StickerExportChannel(private val activity: Activity) : MethodChannel.MethodCallHandler {
 
     companion object {
-        const val CHANNEL = "com.arjun.whatsapp_sticker_studio/sticker_export"
+        const val CHANNEL = "com.stickerstudio.app/sticker_export"
         const val REQUEST_CODE = 2001
 
         private const val ACTION = "com.whatsapp.intent.action.ENABLE_STICKER_PACK"

@@ -1,4 +1,4 @@
-package com.arjun.whatsapp_sticker_studio
+package com.stickerstudio.app
 
 import android.content.Context
 import android.os.Handler
@@ -23,7 +23,7 @@ import java.util.concurrent.Executors
 class TextEmbedderChannel(private val context: Context) : MethodChannel.MethodCallHandler {
 
     companion object {
-        const val CHANNEL = "com.arjun.whatsapp_sticker_studio/text_embedder"
+        const val CHANNEL = "com.stickerstudio.app/text_embedder"
 
         /** Bundled uncompressed in src/main/assets; see noCompress in build.gradle.kts. */
         private const val MODEL = "universal_sentence_encoder.tflite"

@@ -126,7 +126,7 @@ class PlatformStickerChannel implements StickerChannel {
 
   /// Must stay in sync with `StickerExportChannel.CHANNEL` (Kotlin).
   static const String channelName =
-      'com.arjun.whatsapp_sticker_studio/sticker_export';
+      'com.stickerstudio.app/sticker_export';
 
   final MethodChannel _channel;
 

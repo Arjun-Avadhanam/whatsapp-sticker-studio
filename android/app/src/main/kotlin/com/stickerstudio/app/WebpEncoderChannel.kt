@@ -1,4 +1,4 @@
-package com.arjun.whatsapp_sticker_studio
+package com.stickerstudio.app
 
 import android.graphics.Bitmap
 import android.os.Build
@@ -25,7 +25,7 @@ import java.util.concurrent.Executors
 class WebpEncoderChannel : MethodChannel.MethodCallHandler {
 
     companion object {
-        const val CHANNEL = "com.arjun.whatsapp_sticker_studio/webp"
+        const val CHANNEL = "com.stickerstudio.app/webp"
 
         /** Tried in order; the first result at or under the ceiling wins. */
         private val QUALITY_LADDER = intArrayOf(100, 90, 80, 70, 60, 50)

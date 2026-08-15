@@ -16,7 +16,7 @@ class NativeWebpEncoder implements WebpEncoder {
     : _channel = channel ?? const MethodChannel(channelName);
 
   /// Must stay in sync with `WebpEncoderChannel.CHANNEL` (Kotlin).
-  static const String channelName = 'com.arjun.whatsapp_sticker_studio/webp';
+  static const String channelName = 'com.stickerstudio.app/webp';
 
   final MethodChannel _channel;
 

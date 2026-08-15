@@ -1,4 +1,4 @@
-package com.arjun.whatsapp_sticker_studio
+package com.stickerstudio.app
 
 import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity

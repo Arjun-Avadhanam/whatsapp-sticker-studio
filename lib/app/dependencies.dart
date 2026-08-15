@@ -176,7 +176,7 @@ class AppDependencies {
       channel: PlatformStickerChannel(),
       // Must match `android:authorities` in the manifest, which derives it
       // from the applicationId.
-      authority: 'com.arjun.whatsapp_sticker_studio.stickercontentprovider',
+      authority: 'com.stickerstudio.app.stickercontentprovider',
     );
 
     return AppDependencies(

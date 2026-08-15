@@ -1,4 +1,4 @@
-package com.arjun.whatsapp_sticker_studio
+package com.stickerstudio.app
 
 import android.content.ContentProvider
 import android.content.ContentValues

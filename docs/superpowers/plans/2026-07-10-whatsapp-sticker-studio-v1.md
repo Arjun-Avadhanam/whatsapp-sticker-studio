@@ -96,7 +96,7 @@ whatsapp-sticker-project/
 
 ```bash
 cd ~
-flutter create --org com.arjun --project-name whatsapp_sticker_studio --platforms=android whatsapp-sticker-project
+flutter create --org com.stickerstudio --project-name whatsapp_sticker_studio --platforms=android whatsapp-sticker-project
 cd ~/whatsapp-sticker-project
 ```
 

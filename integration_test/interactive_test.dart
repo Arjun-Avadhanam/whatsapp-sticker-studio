@@ -40,7 +40,7 @@ void main() {
   const longEnoughToTap = Timeout(Duration(minutes: 3));
   final stager = PackStager();
   final channel = PlatformStickerChannel();
-  const authority = 'com.arjun.whatsapp_sticker_studio.stickercontentprovider';
+  const authority = 'com.stickerstudio.app.stickercontentprovider';
 
   late Directory sources;
 

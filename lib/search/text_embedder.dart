@@ -21,7 +21,7 @@ class NativeTextEmbedder implements TextEmbedder {
 
   /// Must stay in sync with `TextEmbedderChannel.CHANNEL` (Kotlin).
   static const String channelName =
-      'com.arjun.whatsapp_sticker_studio/text_embedder';
+      'com.stickerstudio.app/text_embedder';
 
   final MethodChannel _channel;
 

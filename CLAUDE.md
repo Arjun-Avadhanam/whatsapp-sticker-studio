@@ -150,7 +150,7 @@ and no cloud copy; only the original photos in the gallery survived, so the stic
 **Back up first. Every time.** Before any `integration_test` run on a device with data worth keeping:
 
 ```bash
-APP=com.arjun.whatsapp_sticker_studio
+APP=com.stickerstudio.app
 
 # BACK UP (run-as starts in the app's data dir, so the path is relative)
 adb exec-out run-as $APP tar cf - files > backup.tar
@@ -1034,7 +1034,7 @@ code bug.** Established on device 2026-08-01 after two misdiagnosed runs:
   from the one running the test. The test's warm `getMediaStream` listener can never hear it.
 
 **What IS proven** without that test: `pm query-activities --brief -a android.intent.action.SEND
--t image/jpeg` returns `com.arjun.whatsapp_sticker_studio/.MainActivity`, and a real share does start
+-t image/jpeg` returns `com.stickerstudio.app/.MainActivity`, and a real share does start
 our activity. Only "the Dart side receives the media" is unverified — observable at Task 15, once a
 real UI exists. The probe is kept but `skip`ped with that reasoning inline.
 

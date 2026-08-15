@@ -424,12 +424,12 @@ void main() {
       await c.pendingTagging;
       expect(c.lastSaved!.autoTags, contains('dog'));
 
-      await c.renameLastSaved('  Arjun high five  ');
+      await c.renameLastSaved('  Ana high five  ');
 
       final stored = (await deps.store.getSticker(saved!.id))!;
-      expect(stored.manualName, 'Arjun high five', reason: 'trimmed');
+      expect(stored.manualName, 'Ana high five', reason: 'trimmed');
       expect(stored.autoTags, contains('dog'), reason: 'tags untouched');
-      expect(c.lastSaved!.manualName, 'Arjun high five');
+      expect(c.lastSaved!.manualName, 'Ana high five');
     });
 
     test('a name makes the sticker findable by it', () async {

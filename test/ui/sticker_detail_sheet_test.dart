@@ -114,14 +114,14 @@ void main() {
     await open(
       tester,
       await saveSticker(
-        manualName: 'Arjun high five',
+        manualName: 'Ana high five',
         manualTags: const ['friends'],
         notes: 'inside joke',
         autoTags: const ['person', 'hand'],
       ),
     );
 
-    expect(find.text('Arjun high five'), findsOneWidget);
+    expect(find.text('Ana high five'), findsOneWidget);
     expect(find.text('friends'), findsOneWidget);
     expect(find.text('inside joke'), findsOneWidget);
     expect(find.text('person'), findsOneWidget);

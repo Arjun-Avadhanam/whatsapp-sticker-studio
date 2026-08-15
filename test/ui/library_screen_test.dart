@@ -134,11 +134,11 @@ void main() {
   });
 
   testWidgets('a sticker shows its name when it has one', (tester) async {
-    await saveSticker(id: 's1', manualName: 'Arjun high five');
+    await saveSticker(id: 's1', manualName: 'Ana high five');
 
     await pump(tester);
 
-    expect(find.text('Arjun high five'), findsOneWidget);
+    expect(find.text('Ana high five'), findsOneWidget);
   });
 
   testWidgets('an unnamed sticker falls back to its tags, not its id', (

@@ -21,7 +21,7 @@ StickerRecord sampleSticker({
   kind: StickerKind.animated,
   packId: 'pack-1',
   autoTags: const ['dog', 'high five'],
-  manualName: 'Arjun high five',
+  manualName: 'Ana high five',
   manualTags: const ['friends'],
   notes: 'inside joke',
   source: source,
@@ -144,7 +144,7 @@ void main() {
     test('an omitted field is left untouched', () async {
       await store.saveSticker(sampleSticker());
       await store.updateMetadata('1', notes: 'edited');
-      expect((await store.getSticker('1'))!.manualName, 'Arjun high five');
+      expect((await store.getSticker('1'))!.manualName, 'Ana high five');
     });
 
     test('passing null clears a nullable field', () async {
@@ -182,12 +182,12 @@ void main() {
         // Started together, not awaited in turn: this is the real shape — the
         // user types a tag while the tagger is still working.
         await Future.wait([
-          store.updateMetadata('1', manualTags: ['arjun']),
+          store.updateMetadata('1', manualTags: ['ana']),
           store.setAutoTags('1', ['dog']),
         ]);
 
         final got = (await store.getSticker('1'))!;
-        expect(got.manualTags, ['arjun'], reason: 'the edit must survive');
+        expect(got.manualTags, ['ana'], reason: 'the edit must survive');
         expect(got.autoTags, ['dog'], reason: 'the tags must survive');
         // The nastier half: a reverted status leaves the sticker stuck on
         // "pending" forever, because the tagging that would resolve it has

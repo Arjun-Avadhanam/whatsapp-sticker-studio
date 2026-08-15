@@ -12,7 +12,7 @@ StickerRecord sample() => StickerRecord(
   kind: StickerKind.animated,
   packId: null,
   autoTags: const ['dog', 'high five'],
-  manualName: 'Arjun high five',
+  manualName: 'Ana high five',
   manualTags: const ['friends'],
   notes: 'inside joke',
   source: StickerSource.maker,
@@ -30,7 +30,7 @@ void main() {
       for (final term in [
         'dog',
         'high five',
-        'arjun',
+        'ana',
         'friends',
         'inside joke',
       ]) {

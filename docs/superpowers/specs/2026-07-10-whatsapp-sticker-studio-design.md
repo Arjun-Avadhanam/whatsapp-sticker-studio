@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-10 (rev. 2026-07-11: added X/Twitter-link source)
 - **Status:** Approved design → implementation in progress
-- **Author:** Arjun (with Claude)
+- **Author:** repository owner (with Claude)
 
 ---
 

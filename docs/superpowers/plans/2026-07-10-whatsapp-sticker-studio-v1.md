@@ -290,13 +290,13 @@ void main() {
     final r = StickerRecord(
       id: '1', filePath: 'a.webp', thumbnailPath: 't.webp',
       kind: StickerKind.animated, packId: null,
-      autoTags: ['dog', 'high five'], manualName: 'Arjun high five',
+      autoTags: ['dog', 'high five'], manualName: 'Ana high five',
       manualTags: ['friends'], notes: 'inside joke',
       source: StickerSource.maker, createdAt: DateTime(2026), usageCount: 0,
       sizeBytes: 400000, taggingStatus: TaggingStatus.done,
     );
     final blob = r.searchBlob().toLowerCase();
-    for (final term in ['dog', 'high five', 'arjun', 'friends', 'inside joke']) {
+    for (final term in ['dog', 'high five', 'ana', 'friends', 'inside joke']) {
       expect(blob.contains(term), isTrue, reason: 'missing "$term"');
     }
   });
@@ -1044,7 +1044,7 @@ abstract class SearchService { Future<void> reindex(); Future<List<SearchHit>> q
 ```
 
 - [x] **Step 1: Write failing tests:**
-  - keyword: searching "arjun" returns the sticker whose manualName contains it;
+  - keyword: searching "ana" returns the sticker whose manualName contains it;
   - ranking: with two keyword-equal matches, the one with higher `usageCount` ranks first.
 
 ```dart
@@ -1096,7 +1096,7 @@ test('usageCount breaks ties in ranking', () async {
 **Branch:** `feat/exporter`
 
 **Files:**
-- Create: `android/app/src/main/kotlin/com/arjun/whatsapp_sticker_studio/StickerContentProvider.kt`, `lib/export/exporter.dart`
+- Create: `android/app/src/main/kotlin/com/stickerstudio/app/StickerContentProvider.kt`, `lib/export/exporter.dart`
 - Modify: `AndroidManifest.xml` (register provider with authority + `com.whatsapp.sticker.READ`), add a `MethodChannel`
 - Test: `test/export/exporter_test.dart` (validation-gate logic) + manual device verification of the WhatsApp handshake
 

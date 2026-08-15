@@ -55,11 +55,11 @@ void main() {
   group('keyword search covers the whole searchBlob', () {
     test('finds a sticker by its manual name', () async {
       await save([
-        stickerOf(id: '1', manualName: 'Arjun high five'),
+        stickerOf(id: '1', manualName: 'Ana high five'),
         stickerOf(id: '2', manualName: 'Something else'),
       ]);
 
-      final hits = await search.query('arjun');
+      final hits = await search.query('ana');
       expect(hits.map((h) => h.record.id), ['1']);
     });
 
@@ -85,8 +85,8 @@ void main() {
     });
 
     test('search is case-insensitive', () async {
-      await save([stickerOf(id: '1', manualName: 'Arjun high five')]);
-      expect(await search.query('ARJUN'), hasLength(1));
+      await save([stickerOf(id: '1', manualName: 'Ana high five')]);
+      expect(await search.query('ANA'), hasLength(1));
     });
   });
 
@@ -176,13 +176,13 @@ void main() {
     test(
       'a query matching nothing returns empty rather than throwing',
       () async {
-        await save([stickerOf(id: '1', manualName: 'Arjun')]);
+        await save([stickerOf(id: '1', manualName: 'Ana')]);
         expect(await search.query('nothingmatchesthis'), isEmpty);
       },
     );
 
     test('an empty or whitespace query returns empty', () async {
-      await save([stickerOf(id: '1', manualName: 'Arjun')]);
+      await save([stickerOf(id: '1', manualName: 'Ana')]);
       expect(await search.query(''), isEmpty);
       expect(await search.query('   '), isEmpty);
     });
@@ -219,7 +219,7 @@ void main() {
 
   group('index freshness', () {
     test('reindex picks up stickers saved after the index was built', () async {
-      await save([stickerOf(id: '1', manualName: 'Arjun')]);
+      await save([stickerOf(id: '1', manualName: 'Ana')]);
       await store.saveSticker(stickerOf(id: '2', manualName: 'Penguin'));
 
       await search.reindex();
@@ -228,11 +228,11 @@ void main() {
 
     test('reindex reflects edited metadata and drops the stale text', () async {
       // Renaming a sticker must not leave it findable under its old name.
-      await save([stickerOf(id: '1', manualName: 'Arjun')]);
+      await save([stickerOf(id: '1', manualName: 'Ana')]);
       await store.updateMetadata('1', manualName: 'Penguin');
       await search.reindex();
 
-      expect(await search.query('arjun'), isEmpty);
+      expect(await search.query('ana'), isEmpty);
       expect((await search.query('penguin')).map((h) => h.record.id), ['1']);
     });
 
@@ -251,11 +251,11 @@ void main() {
     test(
       'renaming replaces the index entry rather than adding a second',
       () async {
-        await store.saveSticker(stickerOf(id: '1', manualName: 'Arjun'));
+        await store.saveSticker(stickerOf(id: '1', manualName: 'Ana'));
         await store.updateMetadata('1', manualName: 'Penguin');
 
         expect(
-          await search.query('arjun'),
+          await search.query('ana'),
           isEmpty,
           reason: 'the old name must stop matching',
         );

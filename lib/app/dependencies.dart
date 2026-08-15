@@ -50,10 +50,16 @@ class AppDependencies {
     required this.packs,
     required this.sharing,
     required this.stickerDirectory,
-    this.extraction,
     this.giphy,
+    ExtractionClient? extraction,
     http.Client? httpClient,
-  }) : httpClient = httpClient ?? http.Client();
+  }) : httpClient = httpClient ?? http.Client() {
+    // Assigned in the body, not the initializer list, so it can share the one
+    // http client. An initializer list cannot read `this`, and writing
+    // `httpClient ?? http.Client()` twice would quietly build a second client
+    // with its own connection pool — which `dispose` would then never close.
+    this.extraction = extraction ?? ExtractionClient(this.httpClient);
+  }
 
   final AppDatabase database;
   final LibraryStore store;
@@ -83,27 +89,18 @@ class AppDependencies {
   /// Where encoded stickers and thumbnails live.
   final Directory stickerDirectory;
 
-  /// Resolves an X post to a video URL, or **null when no extractor is
-  /// configured** — in which case the Maker hides the X button entirely.
+  /// Resolves an X post to a video URL, straight from the phone.
   ///
-  /// Nullable on purpose. The service is self-hosted and its address is supplied
-  /// at build time ([extractorBaseUrl]); a build without one has no working
-  /// feature, and a visible button that always fails is worse than no button.
-  final ExtractionClient? extraction;
+  /// **Non-null, always.** It used to be nullable and gated on a build-time
+  /// service address, so the X button vanished unless a build was pointed at a
+  /// self-hosted extractor — which meant it never appeared in a release build
+  /// at all. There is no service any more, so there is nothing to configure and
+  /// nothing to hide behind.
+  late final ExtractionClient extraction;
 
   /// Shared by the remote sources. One client, so connections are pooled rather
   /// than a fresh socket per download.
   final http.Client httpClient;
-
-  /// Where the extractor service lives, supplied at build time:
-  ///
-  /// ```
-  /// flutter build apk --dart-define=EXTRACTOR_BASE_URL=https://…
-  /// ```
-  ///
-  /// Not a checked-in constant because it changes with the deploy target, and
-  /// not a runtime setting because a user has no way to know one.
-  static const extractorBaseUrl = String.fromEnvironment('EXTRACTOR_BASE_URL');
 
   /// Searches Giphy, or **null when no API key was supplied** — in which case
   /// the Maker hides the GIF button, exactly as it does for [extraction].
@@ -213,11 +210,9 @@ class AppDependencies {
       ),
       sharing: SharingService(const PlatformShareBackend(), store),
       stickerDirectory: stickerDir,
-      // Absent unless the build was given a service address. The Maker keys the
-      // X button off this, so an unconfigured build simply does not offer it.
-      extraction: extractorBaseUrl.isEmpty
-          ? null
-          : ExtractionClient(httpClient, Uri.parse(extractorBaseUrl)),
+      // No argument needed: it talks to X directly and has nothing to
+      // configure. Left to the default so there is exactly one place that
+      // knows the endpoint.
       // Same rule as the extractor: no key, no button. A build that cannot
       // search should not offer a search.
       giphy: giphyApiKey.isEmpty

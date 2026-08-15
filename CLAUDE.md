@@ -630,11 +630,64 @@ encode and Save all work on the A059P. The full chain from Giphy's mp4 to a save
 - Both were found by deleting the guard and checking the test failed. Do that; it is the only thing
   that distinguishes a real test from a decorative one.
 
-## X/Twitter extractor service (`services/extractor/`)
+## X links — resolved ON THE PHONE, no server (rewritten 2026-08-15)
+
+**`ExtractionClient` calls X's own embed endpoint directly. There is no service in the request path,
+and `services/extractor/` is now dead weight kept only as a fallback.**
+
+```
+GET https://cdn.syndication.twimg.com/tweet-result?id=<post id>&token=<derived>&lang=en
+```
+
+**Why the service had to go.** It was deliberately server-side so a Twitter-format break could be
+fixed by bumping yt-dlp and redeploying instead of shipping an app build. That reasoning was sound
+and it still failed in practice, because the service has to run *somewhere the phone can reach*:
+Cloud Run died on billing verification, and the fallback — uvicorn on the dev machine plus
+`adb reverse` — meant the feature only worked with the phone tethered to one specific laptop by USB.
+The redeploy advantage was also always theoretical here: with nowhere to deploy, a yt-dlp break
+needed an app update anyway. Calling X directly costs nothing real and removes hosting entirely.
+
+**It also removes the risk that made hosting hard.** Requests now come from the user's own phone — a
+residential or mobile IP — rather than a datacenter IP, which is where X is most likely to demand
+auth. The cookies contingency is moot.
+
+**☠️ THE STATUS CODE IS ALWAYS 200. JUDGE THE BODY.** A request X dislikes returns `200 {}`, not an
+error. This produced **two** wrong conclusions during development, both from checking status and
+never content:
+1. *"the token is optional"* — the responses are **CDN-cached for 60 s**, so junk-token requests were
+   being served the body an earlier correct request had populated. `x-cache: MISS` is what exposed it.
+2. *"omitting the token works"* — `curl -w %{http_code}` said 200 while the body was `{}`.
+
+**The rule, measured properly (body length, uncached ids):** `token` **absent** → `{}`;
+**present but empty** → `{}`; **present with junk** → full payload; **present, correctly derived** →
+full payload. So *the parameter must exist and be non-empty; its value is not validated.*
+
+**The token is NOT a credential** — no account, no key, nothing issued or paid. It is a pure function
+of the post id, computed offline exactly as X's embed script does: `(id / 1e6) × π` in base 36, zeros
+and the decimal point stripped. Derived properly anyway (ten lines), so we are already correct if X
+ever starts validating it. Pinned by tests: `20 → 2xj79n7d8r`,
+`2087646138526802000 → 2boy5o6d6wewmi`, `1460323737035677698 → 1mjkvbsti2t9`.
+
+**`200 {}` must NOT be reported as "no video in that post".** Observed: every request, curl and Dart
+alike, returned `{}` for a stretch and then recovered on its own. Conflating that with a genuinely
+video-less post sends a user holding a good link off to fix the wrong thing. `_looksLikeAPost` gates
+it on `__typename`/`id_str`.
+
+**✅ VERIFIED LIVE 2026-08-15 with the real Dart client**, not curl: the GIF post resolves and
+downloads **101 004 bytes** of `video/mp4` — byte-identical to what yt-dlp's URL produced. `id=20`
+(no video) and `id=1` (404) each give their own distinct message.
+
+**Still unproven, exactly as it was with yt-dlp:** a real *video* post returns several mp4 renditions
+plus HLS. The client takes the highest-bitrate mp4 and ignores `m3u8`, but every live post tested has
+been an animated GIF, which carries a single variant at bitrate 0.
+
+### The retired service (`services/extractor/`), kept as a fallback
 
 FastAPI + yt-dlp. `POST /extract {url}` → `200 {mp4_url, kind}` | `422 {detail:{error}}`. yt-dlp only
-**resolves** the tweet's mp4 URL (`skip_download`); the app downloads the bytes. Server-side so a
-Twitter-format break is fixed by upgrading yt-dlp, not shipping a new app build.
+**resolves** the tweet's mp4 URL (`skip_download`); the app downloads the bytes. **Nothing in the app
+depends on it any more.** It still works, its tests and CI pytest job still run, and it is the ready
+answer if the syndication endpoint ever dies. Its Dockerfile honours `$PORT` (Cloud Run's contract),
+so it can still be deployed if that day comes.
 
 **✅ SUCCESS PATH CONFIRMED 2026-08-14 — the last open question here is closed.**
 Run against a real video-bearing tweet supplied by the user
@@ -655,30 +708,19 @@ Run against a real video-bearing tweet supplied by the user
 multi-variant path in `pick_mp4` (`max` by height) is therefore **still unexercised on real data** —
 a genuine *video* tweet returns several mp4 renditions plus HLS. Low risk, but unproven.
 
-**Testing it on device WITHOUT deploying anything.** `adb reverse` points the phone's localhost at
-the dev machine, so a locally-run uvicorn is reachable from the app:
-
-```bash
-(cd services/extractor && uvicorn main:app)      # host, port 8000
-adb reverse tcp:8000 tcp:8000                     # phone localhost:8000 -> host
-flutter run --dart-define=EXTRACTOR_BASE_URL=http://localhost:8000
-```
-
-`android/app/src/debug/AndroidManifest.xml` sets `usesCleartextTraffic` for **debug only** —
-Android blocks cleartext HTTP from API 28, so without it the request fails before leaving the phone.
-Release must never carry that flag.
-
 **⚠️ `INTERNET` was in the DEBUG manifest only** (the Flutter scaffold puts it there for hot reload).
 Every debug build and every test worked, and a **release build would have had no network permission
 at all** — both remote sources failing only in release. Now declared in the main manifest. Fixed
 2026-08-14; nothing else in the app touches the network, which is why it went unnoticed.
 
-**TODO — deployment is the remaining blocker, and it is a decision, not a task:**
-- **Choose a deploy target** (free PaaS / small VPS) and record the base URL the app points at.
-  Until then the app reads `EXTRACTOR_BASE_URL` from `--dart-define` and hides the source when unset.
-- Confirm extraction still works **from the deploy IP** — see the cookies caveat above.
+**`usesCleartextTraffic` is GONE, including from debug.** It existed only so `adb reverse` could
+reach a locally-run uvicorn over plain HTTP. Nothing in this project speaks cleartext now.
 
-To run locally: `pip install -r services/extractor/requirements.txt` then
+**There is no `EXTRACTOR_BASE_URL` any more**, and nothing to configure at build time. The X button
+used to be hidden unless a build was pointed at a service, which meant **it never appeared in a
+release build at all**. It is now unconditional.
+
+To run the retired service locally: `pip install -r services/extractor/requirements.txt` then
 `uvicorn main:app` from `services/extractor/`.
 
 ## Post-v1 gaps — device-verified 2026-08-14 (A, B, C, F)

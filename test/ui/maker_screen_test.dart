@@ -423,15 +423,17 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('is hidden when the build has no extractor configured', (
+    testWidgets('is always available, with nothing to configure', (
       tester,
     ) async {
-      // test dependencies carry no service address, which is also the state of
-      // a release build made without --dart-define. A button that could only
-      // ever fail is worse than no button.
+      // This assertion is the inverse of what it used to be, and the inversion
+      // is the point. The button was gated on a build-time service address, so
+      // it never appeared in a release build at all — the feature existed only
+      // on a phone tethered to a dev machine by USB. Extraction now runs on the
+      // device, so there is nothing to configure and nothing to hide behind.
       await pump(tester, source: FakeSource(image()));
 
-      expect(find.byKey(const Key('x-link-button')), findsNothing);
+      expect(find.byKey(const Key('x-link-button')), findsOneWidget);
     });
 
     testWidgets('turns a pasted link into media on the Maker', (tester) async {

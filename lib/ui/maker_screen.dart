@@ -65,17 +65,17 @@ class _MakerScreenState extends State<MakerScreen> {
   late final Map<String, Source> _sources =
       widget.sources ?? {'Gallery': GallerySource(), 'Camera': CameraSource()};
 
-  /// Null when no extractor service is configured for this build — the X button
-  /// is then hidden rather than shown as something that always fails.
-  late final Source Function(String)? _xLinkSource =
-      widget.xLinkSource ?? _defaultXLinkSource;
-
-  Source Function(String)? get _defaultXLinkSource {
-    final extraction = widget.dependencies.extraction;
-    if (extraction == null) return null;
-    return (link) =>
-        XLinkSource(extraction, widget.dependencies.httpClient, link);
-  }
+  /// Always present now. It used to be null unless the build was pointed at a
+  /// self-hosted extractor, which meant the X button never appeared in a
+  /// release build at all; extraction runs on the phone, so there is nothing
+  /// left to configure.
+  late final Source Function(String) _xLinkSource =
+      widget.xLinkSource ??
+      (link) => XLinkSource(
+        widget.dependencies.extraction,
+        widget.dependencies.httpClient,
+        link,
+      );
 
   /// Null when the build carries no Giphy key — the GIF button is then hidden
   /// rather than shown as something that can only fail.
@@ -209,13 +209,9 @@ class _MakerScreenState extends State<MakerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Hidden, not disabled, when the build has no extractor configured: a
-      // permanently failing button is worse than an absent one.
-      floatingActionButton: _xLinkSource == null
-          ? null
-          : XLinkButton(
-              onLink: (link) => _controller.pickFrom(_xLinkSource(link)),
-            ),
+      floatingActionButton: XLinkButton(
+        onLink: (link) => _controller.pickFrom(_xLinkSource(link)),
+      ),
       body: ListView(
         // The bottom padding is the floating button's clearance, and it is
         // load-bearing. The list ends with the export card — "Add to WhatsApp",

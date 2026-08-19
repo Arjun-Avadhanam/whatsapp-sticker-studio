@@ -247,6 +247,11 @@ class _MakerScreenState extends State<MakerScreen> {
             if (_controller.isAnimated) ...[
               const SizedBox(height: 16),
               _ClipRange(controller: _controller),
+              // Directly under the controls that create the need for it, and
+              // above Save, so the order reads: change the clip, re-encode it,
+              // then save what you were shown.
+              if (_controller.needsEncode)
+                _EncodePrompt(controller: _controller),
             ],
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -455,28 +460,41 @@ class _QualityReadout extends StatelessWidget {
               : 'Quality ${report.quality}',
           style: Theme.of(context).textTheme.bodySmall,
         ),
-        if (controller.isPreviewStale) _StaleNotice(controller: controller),
       ],
     );
   }
 }
 
-class _StaleNotice extends StatelessWidget {
-  const _StaleNotice({required this.controller});
+/// Offers the encode the current parameters are owed.
+///
+/// Deliberately **outside** the size readout. It used to live inside it, and the
+/// readout only renders when a preview exists — so a failed encode removed the
+/// readout, this notice, and the app's only retry button all at once. The user
+/// was told to trim the clip shorter, trimmed it, and had nothing to press.
+class _EncodePrompt extends StatelessWidget {
+  const _EncodePrompt({required this.controller});
   final MakerController controller;
 
   @override
   Widget build(BuildContext context) {
+    // Two different situations, and the difference matters to the user: one
+    // preview is merely out of date, the other does not exist because the last
+    // attempt failed. The error banner says why; this says what to do next.
+    final stale = controller.preview != null;
+
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Row(
+        key: const Key('encode-prompt'),
         children: [
-          const Expanded(
-            child: Text('Preview is out of date', key: Key('stale-notice')),
+          Expanded(
+            child: stale
+                ? const Text('Preview is out of date', key: Key('stale-notice'))
+                : const Text('No preview yet', key: Key('no-preview-notice')),
           ),
           TextButton(
             onPressed: controller.busy ? null : controller.refreshPreview,
-            child: const Text('Update preview'),
+            child: Text(stale ? 'Update preview' : 'Try again'),
           ),
         ],
       ),

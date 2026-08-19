@@ -15,6 +15,19 @@ Versions are `MAJOR.MINOR.PATCH+BUILD`, matching the `version:` line in
 The database `schemaVersion` in `lib/library/database.dart` is deliberately
 separate and moves on its own schedule, since a release often changes neither.
 
+## 1.1.1 (build 3)
+
+### Fixed
+
+- A clip that failed to fit under the size ceiling left no way to try again.
+  The error asked the user to trim the clip shorter, but the only "Update
+  preview" button was drawn inside the size readout, which is not shown when
+  there is no preview. Failing therefore removed the readout, the notice and
+  the retry control together, so moving the sliders appeared to do nothing.
+  The prompt now sits below the clip controls and appears whenever the current
+  settings have not produced a preview, whether that is because they changed or
+  because the last attempt failed.
+
 ## 1.1.0 (build 2)
 
 ### Added

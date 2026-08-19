@@ -86,6 +86,20 @@ class MakerController extends ChangeNotifier {
   bool get isPreviewStale =>
       _preview != null && _previewParams != null && _previewParams != _params;
 
+  /// The current parameters have not produced a preview, so an encode is owed.
+  ///
+  /// Covers two cases the UI must treat alike, and the second one used to be a
+  /// dead end. A preview that exists but was encoded with older parameters is
+  /// *stale*. **A preview that does not exist at all, because the last encode
+  /// failed, is not stale — it is absent** — so `isPreviewStale` was false, the
+  /// only "Update preview" button in the app was hidden, and a user told to
+  /// "try trimming it shorter" could move the sliders with nothing to press.
+  ///
+  /// Animated only. A still re-encodes automatically on every change, so it
+  /// recovers from a failed encode by itself and never owes anything.
+  bool get needsEncode =>
+      _media != null && isAnimated && (_preview == null || isPreviewStale);
+
   /// Picks media and, for stills, encodes it straight away.
   ///
   /// A `null` from [source] means the user cancelled — an ordinary outcome that

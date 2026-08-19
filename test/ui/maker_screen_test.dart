@@ -212,6 +212,10 @@ void main() {
     // The whole point of the stale model: no re-encode on a toggle, because a
     // real clip takes ~24 s.
     expect(motion.calls, 1);
+
+    // The notice now lives below the clip controls rather than inside the size
+    // readout, so it has to be scrolled into existence — the list is lazy.
+    await scrollToBottom(tester);
     expect(find.byKey(const Key('stale-notice')), findsOneWidget);
     expect(find.text('Update preview'), findsOneWidget);
   });
@@ -227,6 +231,8 @@ void main() {
     await tester.tap(find.text('Fill'));
     await tester.pumpAndSettle();
 
+    // Below the clip controls now, so it must be scrolled to before it exists.
+    await scrollToBottom(tester);
     await tester.tap(find.text('Update preview'));
     await tester.pumpAndSettle();
 
@@ -412,6 +418,70 @@ void main() {
 
     expect(find.byKey(const Key('tagging-failed')), findsNothing);
     expect(find.text('dog'), findsOneWidget);
+  });
+
+  testWidgets('a failed encode leaves a way to retry after trimming', (
+    tester,
+  ) async {
+    // Reproduces a real dead end. The budget error tells the user to trim the
+    // clip shorter; they trim it, and nothing happens, because the only
+    // "Update preview" button lived inside the size readout — which is not
+    // rendered when there is no preview. Failing removed the readout, the
+    // notice and the retry in one go.
+    final motion = PngEncoder(
+      kind: StickerKind.animated,
+      throws: const EncoderBudgetException(
+        'could not fit this clip under 500 KB - try trimming it shorter',
+      ),
+    );
+    final controller = await pump(
+      tester,
+      source: FakeSource(video()),
+      motion: motion,
+      durationProbe: FakeDurationProbe(const Duration(seconds: 16)),
+    );
+
+    await tester.tap(find.text('Gallery'));
+    await tester.pumpAndSettle();
+
+    // The failure is on screen and there is no preview.
+    expect(find.textContaining('try trimming it shorter'), findsOneWidget);
+    expect(controller.preview, isNull);
+
+    // The prompt sits below the clip controls, and the list is lazy, so it has
+    // to be scrolled into existence before it can be found at all.
+    await scrollToBottom(tester);
+
+    // The retry must be offered even though nothing is "stale" — there is no
+    // preview to be stale.
+    expect(controller.isPreviewStale, isFalse);
+    expect(find.byKey(const Key('encode-prompt')), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+
+    // Trimming shorter and retrying re-runs the encode, which is the entire
+    // remedy the error message names.
+    final before = motion.calls;
+
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+
+    expect(motion.calls, before + 1);
+  });
+
+  testWidgets('a successful encode offers no retry prompt', (tester) async {
+    // The prompt must not become permanent furniture: with a fresh preview
+    // matching the current parameters, there is nothing owed.
+    await pump(
+      tester,
+      source: FakeSource(video()),
+      durationProbe: FakeDurationProbe(const Duration(seconds: 16)),
+    );
+
+    await tester.tap(find.text('Gallery'));
+    await tester.pumpAndSettle();
+    await scrollToBottom(tester);
+
+    expect(find.byKey(const Key('encode-prompt')), findsNothing);
   });
 
   group('the clip sliders', () {

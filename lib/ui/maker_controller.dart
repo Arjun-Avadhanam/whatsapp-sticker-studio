@@ -8,6 +8,7 @@ import '../app/dependencies.dart';
 import '../core/media.dart';
 import '../core/whatsapp_spec.dart';
 import '../encoder/encoder.dart';
+import '../encoder/media_duration_probe.dart';
 import '../models/sticker_record.dart';
 import '../sources/source.dart';
 import '../tagger/tagging_orchestrator.dart';
@@ -22,14 +23,17 @@ class MakerController extends ChangeNotifier {
     required AppDependencies deps,
     Encoder? staticEncoder,
     Encoder? animatedEncoder,
+    MediaDurationProbe? durationProbe,
     this.transientErrorLifetime = const Duration(seconds: 5),
   }) : _deps = deps,
        _static = staticEncoder ?? deps.staticEncoder,
-       _animated = animatedEncoder ?? deps.animatedEncoder;
+       _animated = animatedEncoder ?? deps.animatedEncoder,
+       _durationProbe = durationProbe ?? deps.durationProbe;
 
   final AppDependencies _deps;
   final Encoder _static;
   final Encoder _animated;
+  final MediaDurationProbe _durationProbe;
 
   MediaHandle? _media;
   EncodeParams _params = const EncodeParams();
@@ -65,6 +69,15 @@ class MakerController extends ChangeNotifier {
 
   /// Whether the media needs the slow ffmpeg path.
   bool get isAnimated => _media != null && _media!.kind != MediaKind.image;
+
+  Duration? _sourceDuration;
+
+  /// How long the loaded clip runs, or null when it could not be determined.
+  ///
+  /// Probed once per load, never per encode. The trim sliders use it to bound
+  /// themselves; a null leaves them on their previous fallback, because a failed
+  /// probe must not take away a control that works.
+  Duration? get sourceDuration => _sourceDuration;
 
   /// The preview no longer reflects the current parameters.
   ///
@@ -122,8 +135,16 @@ class MakerController extends ChangeNotifier {
     _params = const EncodeParams();
     _preview = null;
     _previewParams = null;
+    _sourceDuration = null;
     _clearError();
     notifyListeners();
+
+    // Before the encode, because the trim sliders are built from it and the
+    // encode is the slow part. A still has no duration worth asking about.
+    if (picked.kind != MediaKind.image) {
+      _sourceDuration = await _durationProbe.durationOf(picked.bytes);
+      notifyListeners();
+    }
 
     await _encode();
   }
@@ -170,11 +191,23 @@ class MakerController extends ChangeNotifier {
     // here rather than letting the encoder silently truncate it — the readout
     // should show what will actually be produced.
     const maxAnimation = Duration(milliseconds: WhatsAppSpec.maxAnimationMs);
-    final clamped = trim == null || trim > maxAnimation ? maxAnimation : trim;
+    var clamped = trim == null || trim > maxAnimation ? maxAnimation : trim;
+
+    var from = start.isNegative ? Duration.zero : start;
+
+    // Bound both to the clip itself once its length is known. A start past the
+    // end used to be settable, and produced an encode with no frames at all —
+    // a failure the user could neither see coming nor explain.
+    final total = _sourceDuration;
+    if (total != null) {
+      if (from > total) from = total;
+      final remaining = total - from;
+      if (clamped > remaining) clamped = remaining;
+    }
 
     _params = EncodeParams(
       fitMode: _params.fitMode,
-      start: start.isNegative ? Duration.zero : start,
+      start: from,
       trim: clamped,
     );
 

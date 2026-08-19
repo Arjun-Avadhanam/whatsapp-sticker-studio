@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
+import 'package:whatsapp_sticker_studio/encoder/media_duration_probe.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
 import 'package:whatsapp_sticker_studio/sources/source.dart';
 import 'package:whatsapp_sticker_studio/ui/maker_controller.dart';
@@ -72,8 +73,9 @@ void main() {
   Future<MakerController> controller({
     Encoder? motionEncoder,
     Duration? errorLifetime,
+    MediaDurationProbe? durationProbe,
   }) async {
-    final deps = await testDependencies();
+    final deps = await testDependencies(durationProbe: durationProbe);
     addTearDown(deps.dispose);
     return MakerController(
       deps: deps,
@@ -175,6 +177,89 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 120));
       expect(c.error, isNull);
+    });
+  });
+
+  group('clip duration', () {
+    test(
+      'a video is probed once on load, a still is not probed at all',
+      () async {
+        // Once per load, never per encode: the probe writes a temp file, and the
+        // encode ladder can run seven times.
+        final probe = FakeDurationProbe(const Duration(seconds: 7));
+        final c = await controller(durationProbe: probe);
+
+        await c.pickFrom(FakeSource(video()));
+        expect(c.sourceDuration, const Duration(seconds: 7));
+        expect(probe.calls, 1);
+
+        await c.setFitMode(FitMode.smartCrop);
+        await c.refreshPreview();
+        expect(probe.calls, 1, reason: 'a re-encode must not re-probe');
+
+        await c.pickFrom(FakeSource(fakeImage()));
+        expect(
+          probe.calls,
+          1,
+          reason: 'a still has no duration worth asking for',
+        );
+        expect(c.sourceDuration, isNull);
+      },
+    );
+
+    test('a start past the end of the clip is clamped', () async {
+      // The bug this exists for. The Start slider ran to a hardcoded 60 s for
+      // every video, so on a short clip a start beyond the end was one drag
+      // away — and it produced an encode with no frames, which the user could
+      // neither predict nor explain.
+      final c = await controller(
+        durationProbe: FakeDurationProbe(const Duration(seconds: 3)),
+      );
+      await c.pickFrom(FakeSource(video()));
+
+      await c.setStart(const Duration(seconds: 45));
+
+      expect(c.params.start, const Duration(seconds: 3));
+    });
+
+    test('length never exceeds what is left after the start', () async {
+      final c = await controller(
+        durationProbe: FakeDurationProbe(const Duration(seconds: 6)),
+      );
+      await c.pickFrom(FakeSource(video()));
+
+      await c.setStart(const Duration(seconds: 4));
+      await c.setTrim(const Duration(seconds: 10));
+
+      expect(c.params.trim, const Duration(seconds: 2));
+    });
+
+    test('the 10 s ceiling still wins on a long clip', () async {
+      // WhatsApp's limit is the binding one when there is plenty of clip.
+      final c = await controller(
+        durationProbe: FakeDurationProbe(const Duration(minutes: 2)),
+      );
+      await c.pickFrom(FakeSource(video()));
+
+      await c.setTrim(const Duration(seconds: 30));
+
+      expect(c.params.trim, const Duration(seconds: 10));
+    });
+
+    test('an unknown duration leaves the old behaviour intact', () async {
+      // A probe that cannot tell must not take away a control that works. The
+      // default fake reports null precisely so every other test covers this.
+      final c = await controller();
+      await c.pickFrom(FakeSource(video()));
+
+      expect(c.sourceDuration, isNull);
+      await c.setStart(const Duration(seconds: 45));
+
+      expect(
+        c.params.start,
+        const Duration(seconds: 45),
+        reason: 'without a known length there is nothing to clamp against',
+      );
     });
   });
 

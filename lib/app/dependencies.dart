@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../encoder/animated_encoder.dart';
 import '../encoder/encoder.dart';
 import '../encoder/ffmpeg_image_transcoder.dart';
+import '../encoder/media_duration_probe.dart';
 import '../encoder/native_webp_encoder.dart';
 import '../encoder/static_encoder.dart';
 import '../encoder/tray_icon_encoder.dart';
@@ -42,6 +43,7 @@ class AppDependencies {
     required this.staticEncoder,
     required this.animatedEncoder,
     required this.trayIconEncoder,
+    required this.durationProbe,
     required this.tagger,
     required this.tagging,
     required this.exporter,
@@ -72,6 +74,10 @@ class AppDependencies {
   final AnimatedEncoder animatedEncoder;
 
   final TrayIconEncoder trayIconEncoder;
+
+  /// How long a source clip runs, so the Maker's trim sliders can be bounded by
+  /// the real thing rather than a hardcoded guess.
+  final MediaDurationProbe durationProbe;
   final TaggingService tagger;
   final TaggingOrchestrator tagging;
   final Exporter exporter;
@@ -191,6 +197,7 @@ class AppDependencies {
       ),
       animatedEncoder: animated,
       trayIconEncoder: TrayIconEncoder(NativeWebpEncoder()),
+      durationProbe: const FfprobeDurationProbe(),
       tagger: tagger,
       tagging: TaggingOrchestrator(tagger, store, search: search),
       exporter: exporter,

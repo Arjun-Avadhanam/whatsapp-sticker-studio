@@ -36,6 +36,32 @@ void main() {
     expect(colours.readAsStringSync().toLowerCase(), contains('#1a1c28'));
   });
 
+  test('the changelog documents the version that is actually shipping', () {
+    // A changelog that lags the version is worse than no changelog: it states
+    // confidently that a release contained something it did not. Asserting the
+    // two agree turns "I forgot to write it down" into a failing test rather
+    // than a wrong record nobody notices for months.
+    final version = RegExp(
+      r'^version:\s*(\d+\.\d+\.\d+)\+(\d+)',
+      multiLine: true,
+    ).firstMatch(File('pubspec.yaml').readAsStringSync());
+    expect(version, isNotNull, reason: 'pubspec has no parseable version');
+
+    final newest = RegExp(
+      r'^## (\d+\.\d+\.\d+) \(build (\d+)\)',
+      multiLine: true,
+    ).firstMatch(File('CHANGELOG.md').readAsStringSync());
+    expect(newest, isNotNull, reason: 'CHANGELOG has no versioned heading');
+
+    expect(
+      '${newest![1]}+${newest[2]}',
+      '${version![1]}+${version[2]}',
+      reason:
+          'the newest CHANGELOG entry must match pubspec. Bump both together, '
+          'in the same commit as the change they describe.',
+    );
+  });
+
   test('the icon sources are committed, so the icon is reproducible', () {
     // `tool/make_app_icon.py` regenerates these; keeping the PNGs in the tree
     // means a checkout builds the right icon without running Python.

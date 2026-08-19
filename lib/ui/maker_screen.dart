@@ -727,23 +727,55 @@ class _ClipRange extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final params = controller.params;
-    final maxSeconds = WhatsAppSpec.maxAnimationMs / 1000;
+    final ceiling = WhatsAppSpec.maxAnimationMs / 1000;
+
+    // The clip's real length when it is known. Before this it was a hardcoded
+    // 60 s for every video, so a three-second clip offered fifty-seven seconds
+    // of dead travel and let the user set a start past the end.
+    final total = controller.sourceDuration;
+    final totalSeconds = total == null ? null : total.inMilliseconds / 1000;
+
+    final startSeconds = params.start.inMilliseconds / 1000;
+    // Falls back to the old behaviour when the probe could not tell, because a
+    // failed probe must not remove a control that works.
+    final startMax = totalSeconds ?? 60.0;
+
+    // Never offer more length than there is clip left after the start point.
+    final lengthMax = totalSeconds == null
+        ? ceiling
+        : (totalSeconds - startSeconds).clamp(0.1, ceiling);
+
     final trimSeconds =
-        (params.trim ?? Duration(seconds: maxSeconds.toInt())).inMilliseconds /
+        (params.trim ?? Duration(seconds: ceiling.toInt())).inMilliseconds /
         1000;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Clip', style: Theme.of(context).textTheme.titleSmall),
+        Row(
+          children: [
+            Text('Clip', style: Theme.of(context).textTheme.titleSmall),
+            if (totalSeconds != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                // Says what there is to work with. Without it the sliders are
+                // guesswork, which matters most for an X post the user has
+                // very likely never watched.
+                key: const Key('clip-duration'),
+                '${totalSeconds.toStringAsFixed(1)}s available',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
         // Trimming is the strongest lever for fitting the 500 KB ceiling — cost
         // is near-linear in frame count — so these are given more prominence
         // than any quality control, and there is no quality slider at all.
         _DurationSlider(
           label: 'Start',
           key: const Key('start-slider'),
-          seconds: params.start.inMilliseconds / 1000,
-          max: 60,
+          seconds: startSeconds,
+          max: startMax,
           enabled: !controller.busy,
           onChanged: (v) =>
               controller.setStart(Duration(milliseconds: (v * 1000).round())),
@@ -752,7 +784,7 @@ class _ClipRange extends StatelessWidget {
           label: 'Length',
           key: const Key('length-slider'),
           seconds: trimSeconds,
-          max: maxSeconds,
+          max: lengthMax,
           enabled: !controller.busy,
           onChanged: (v) =>
               controller.setTrim(Duration(milliseconds: (v * 1000).round())),

@@ -6,6 +6,7 @@ import 'package:whatsapp_sticker_studio/app/dependencies.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/encoder/animated_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
+import 'package:whatsapp_sticker_studio/encoder/media_duration_probe.dart';
 import 'package:whatsapp_sticker_studio/encoder/static_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/tray_icon_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/webp_encoder.dart';
@@ -97,6 +98,24 @@ class FakePromoter implements StaticPromoter {
   }
 }
 
+/// Reports whatever duration a test wants, defaulting to "could not tell".
+///
+/// Null by default on purpose: it is the fallback path, so every test that does
+/// not care about duration exercises the behaviour a real probe failure
+/// produces, rather than a happy case that might be hiding a crash.
+class FakeDurationProbe implements MediaDurationProbe {
+  FakeDurationProbe([this.duration]);
+
+  final Duration? duration;
+  int calls = 0;
+
+  @override
+  Future<Duration?> durationOf(Uint8List bytes) async {
+    calls++;
+    return duration;
+  }
+}
+
 class FakeExporter implements Exporter {
   final List<PackRecord> exported = [];
 
@@ -158,6 +177,7 @@ Future<AppDependencies> testDependencies({
   FakeShareBackend? shareBackend,
   GiphyClient? giphy,
   http.Client? httpClient,
+  MediaDurationProbe? durationProbe,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   final store = DriftLibraryStore(db);
@@ -175,6 +195,7 @@ Future<AppDependencies> testDependencies({
     staticEncoder: StaticEncoder(FakeWebpEncoder()),
     animatedEncoder: const AnimatedEncoder(),
     trayIconEncoder: TrayIconEncoder(FakeWebpEncoder()),
+    durationProbe: durationProbe ?? FakeDurationProbe(),
     tagger: taggingService,
     tagging: TaggingOrchestrator(taggingService, store, search: search),
     exporter: fakeExporter,

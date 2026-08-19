@@ -6,6 +6,26 @@
 - Full testing before "done": run the test suite (unit + backend/integration where possible). Report a task complete **only after** its tests pass — never claim completion on untested code.
 - On the completion of a task - make sure to review, update any relevant documentation and finally report the current status of the project in the session.
 
+## Versioning (from v1.0.0 onwards)
+
+`pubspec.yaml`'s `version:` is `MAJOR.MINOR.PATCH+BUILD` and is the single source
+of truth; Android reads it as `versionName` and `versionCode`.
+
+- **MAJOR** — breaks a user's data or the WhatsApp integration.
+- **MINOR** — a capability the user can see.
+- **PATCH** — a fix or refinement to something that already exists.
+- **BUILD** — **increment on every build that leaves this machine, and never
+  reset it.** Android refuses to treat an APK as an upgrade unless it strictly
+  increases, so a reset silently blocks installs.
+
+**Every version bump gets a `CHANGELOG.md` entry in the same commit.**
+`test/app/app_identity_test.dart` asserts the two agree, because a changelog that
+lags the version is worse than none — it is confidently wrong about what shipped.
+
+**`schemaVersion` in `lib/library/database.dart` is a separate number** on its own
+schedule. Most releases change neither, and conflating them would force pointless
+migrations.
+
 ## Product constraints (WhatsApp sticker spec — do not violate)
 - WebP only, exactly **512×512**. Static **≤ 100 KB**, animated **≤ 500 KB**. Tray icon **96×96 ≤ 50 KB**.
 - **3–30** stickers/pack; **1–10** packs. Animation **≤ 10 s**, **≥ 8 ms/frame**.

@@ -11,6 +11,7 @@ import 'package:whatsapp_sticker_studio/app/dependencies.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/core/whatsapp_spec.dart';
 import 'package:whatsapp_sticker_studio/encoder/animated_encoder.dart';
+import 'package:whatsapp_sticker_studio/encoder/media_duration_probe.dart';
 import 'package:whatsapp_sticker_studio/encoder/native_webp_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/static_encoder.dart';
 import 'package:whatsapp_sticker_studio/encoder/tray_icon_encoder.dart';
@@ -71,6 +72,8 @@ void endToEndTests() {
       staticEncoder: StaticEncoder(NativeWebpEncoder()),
       animatedEncoder: animated,
       trayIconEncoder: TrayIconEncoder(NativeWebpEncoder()),
+      // The real one: this suite exists to exercise the actual native stack.
+      durationProbe: const FfprobeDurationProbe(),
       tagger: tagger,
       tagging: TaggingOrchestrator(tagger, store),
       exporter: exporter,

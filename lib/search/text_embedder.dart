@@ -20,8 +20,7 @@ class NativeTextEmbedder implements TextEmbedder {
     : _channel = channel ?? const MethodChannel(channelName);
 
   /// Must stay in sync with `TextEmbedderChannel.CHANNEL` (Kotlin).
-  static const String channelName =
-      'com.stickerstudio.app/text_embedder';
+  static const String channelName = 'com.stickerstudio.app/text_embedder';
 
   final MethodChannel _channel;
 

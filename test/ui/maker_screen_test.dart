@@ -8,6 +8,7 @@ import 'package:whatsapp_sticker_studio/app/dependencies.dart';
 import 'package:whatsapp_sticker_studio/sources/giphy_client.dart';
 import 'package:whatsapp_sticker_studio/core/media.dart';
 import 'package:whatsapp_sticker_studio/encoder/encoder.dart';
+import 'package:whatsapp_sticker_studio/encoder/media_duration_probe.dart';
 import 'package:whatsapp_sticker_studio/models/sticker_record.dart';
 import 'package:whatsapp_sticker_studio/sources/source.dart';
 import 'package:whatsapp_sticker_studio/tagger/tagging_service.dart';
@@ -78,8 +79,9 @@ void main() {
     TaggingService? tagger,
     Source Function(String)? xLinkSource,
     Future<Source?> Function(BuildContext)? gifSource,
+    MediaDurationProbe? durationProbe,
   }) async {
-    deps = await testDependencies(tagger: tagger);
+    deps = await testDependencies(tagger: tagger, durationProbe: durationProbe);
     addTearDown(deps.dispose);
 
     final controller = MakerController(
@@ -410,6 +412,53 @@ void main() {
 
     expect(find.byKey(const Key('tagging-failed')), findsNothing);
     expect(find.text('dog'), findsOneWidget);
+  });
+
+  group('the clip sliders', () {
+    /// The Slider widget behind [key].
+    Slider sliderAt(WidgetTester tester, String key) => tester.widget<Slider>(
+      find.descendant(of: find.byKey(Key(key)), matching: find.byType(Slider)),
+    );
+
+    testWidgets('are bounded by the clip, and its length is shown', (
+      tester,
+    ) async {
+      // Before this the Start slider ran to a hardcoded 60 s for every video,
+      // so a 4 s clip offered 56 s of dead travel and a start past the end was
+      // one drag away. It matters most for an X post, which the user has very
+      // likely never watched.
+      await pump(
+        tester,
+        source: FakeSource(video()),
+        durationProbe: FakeDurationProbe(const Duration(seconds: 4)),
+      );
+
+      await tester.tap(find.text('Gallery'));
+      await tester.pumpAndSettle();
+
+      expect(sliderAt(tester, 'start-slider').max, 4.0);
+      expect(
+        sliderAt(tester, 'length-slider').max,
+        4.0,
+        reason: 'there are only 4 s to keep, not WhatsApp\'s full 10',
+      );
+      expect(find.byKey(const Key('clip-duration')), findsOneWidget);
+      expect(find.textContaining('4.0s available'), findsOneWidget);
+    });
+
+    testWidgets('fall back to the old bounds when the length is unknown', (
+      tester,
+    ) async {
+      // A probe that cannot tell must not remove a working control.
+      await pump(tester, source: FakeSource(video()));
+
+      await tester.tap(find.text('Gallery'));
+      await tester.pumpAndSettle();
+
+      expect(sliderAt(tester, 'start-slider').max, 60.0);
+      expect(sliderAt(tester, 'length-slider').max, 10.0);
+      expect(find.byKey(const Key('clip-duration')), findsNothing);
+    });
   });
 
   group('the X link button', () {

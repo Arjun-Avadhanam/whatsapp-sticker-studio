@@ -125,8 +125,7 @@ class PlatformStickerChannel implements StickerChannel {
     : _channel = channel ?? const MethodChannel(channelName);
 
   /// Must stay in sync with `StickerExportChannel.CHANNEL` (Kotlin).
-  static const String channelName =
-      'com.stickerstudio.app/sticker_export';
+  static const String channelName = 'com.stickerstudio.app/sticker_export';
 
   final MethodChannel _channel;
 

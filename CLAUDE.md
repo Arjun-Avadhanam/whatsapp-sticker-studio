@@ -523,6 +523,12 @@ does with our alpha channel when it renders the WebP as a photo.
 
 ## "Send to WhatsApp" — a sticker's name, via a pack of one (2026-08-19)
 
+**✅ DEVICE-VERIFIED 2026-08-19.** A named sticker sent this way shows **its own name** in WhatsApp's
+tray — the first time naming a sticker has had any visible effect there at all. It **survives
+force-stopping and reopening WhatsApp** even though the pack is discarded seconds after import, which
+was the one outcome that could have sunk the design. The Packs tab stays clean and the sticker
+remains in the Library, unattached.
+
 **The only way to make a sticker's name visible in WhatsApp is to give it a pack of its own.** The
 pack name is the one string WhatsApp renders per sticker, so `sendStickerToWhatsApp` creates a
 one-sticker pack named after the sticker, exports it, then **discards the pack**.

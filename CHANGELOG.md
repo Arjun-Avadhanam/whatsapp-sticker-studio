@@ -15,6 +15,29 @@ Versions are `MAJOR.MINOR.PATCH+BUILD`, matching the `version:` line in
 The database `schemaVersion` in `lib/library/database.dart` is deliberately
 separate and moves on its own schedule, since a release often changes neither.
 
+## 1.2.0 (build 4)
+
+### Added
+
+- "Send to WhatsApp" on a saved sticker, which sends that sticker on its own and
+  makes its name visible in WhatsApp for the first time.
+
+  WhatsApp's third-party sticker API has no per-sticker display name. The only
+  per-sticker text field is an accessibility label, which screen readers
+  announce and nothing draws, so every sticker in the tray shows its pack's
+  name. Naming a sticker therefore had no visible effect there at all. Sending
+  it as a pack of one, named after the sticker, is the only way the name
+  appears.
+
+  The pack is scaffolding rather than something to keep, so it is discarded once
+  WhatsApp has it. The sticker itself stays in the library, and WhatsApp keeps
+  its imported copy. Discarding also frees the slot, since an app may publish at
+  most ten packs and the feature would otherwise stop working after ten.
+
+  Known and accepted: WhatsApp's tray gains one section per sticker sent this
+  way. Nothing can avoid that while the pack name is the only name WhatsApp
+  renders.
+
 ## 1.1.1 (build 3)
 
 ### Fixed

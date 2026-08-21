@@ -468,6 +468,11 @@ worth keeping:
   screen-reader user got nothing. Now falls back to auto-tags — the one job those generic scene labels
   are genuinely good at. `emojis` is still sent empty; it is WhatsApp's own in-tray search hook and is
   the remaining unexploited per-sticker field.
+  - **⚠️ `accessibility_text` is NEVER RENDERED.** Screen readers announce it; nothing draws it. It
+    does not put a name on screen and no amount of fixing it will. Confirmed again on device
+    2026-08-19 when a named sticker still showed the pack's name.
+  - **The only way to show a sticker's name is to make it a pack of one** — see "Send to WhatsApp"
+    below. There is no other lever.
 - **Video encoding takes 15–20 s on real clips** (earlier measurement said ~24 s; same order). Noted,
   accepted for v1, revisit post-v1. The stale-preview model is what makes it tolerable.
 - **BUG, found here and fixed: the Add-to-pack sheet was hidden behind the keyboard.** A bottom sheet
@@ -515,6 +520,29 @@ recipient gets a real sticker). `SharingService` is kept — it is written, test
 — and its honest home is the **Library (Task 14)** as *Export file*, where "get this file out of the
 app" is the obvious reading and WhatsApp is not the implied destination. **Untested:** what WhatsApp
 does with our alpha channel when it renders the WebP as a photo.
+
+## "Send to WhatsApp" — a sticker's name, via a pack of one (2026-08-19)
+
+**The only way to make a sticker's name visible in WhatsApp is to give it a pack of its own.** The
+pack name is the one string WhatsApp renders per sticker, so `sendStickerToWhatsApp` creates a
+one-sticker pack named after the sticker, exports it, then **discards the pack**.
+
+- **The wrapper is discarded on every outcome**, success or cancel. It is scaffolding the user never
+  asked for, and leaving it behind puts a pack in their library they cannot explain.
+- **Discarding must remove BOTH the record and the staged directory.** `StickerContentProvider`
+  enumerates packs by listing `sticker_packs/` **on the filesystem**, not from the database, so
+  deleting the record alone leaves the pack advertised to WhatsApp and still counted against the ten
+  an app may publish. `PackStager.unstage` exists for this.
+- **Never discard before the export succeeds.** WhatsApp reads the sticker bytes through the
+  provider, so removing the files early races an unfinished import.
+- **WhatsApp keeps its copy** — confirmed in real use: stickers added this way survive the app being
+  uninstalled and its data wiped. That is what makes the wrapper disposable, and it is why the
+  ten-pack ceiling never binds.
+- **Tray clutter is ACCEPTED, not solved.** One section per sticker sent this way. Nothing avoids it
+  while pack name is the only visible name, and competing apps behave the same. Do not "fix" this by
+  keeping the wrapper packs — that reintroduces the ceiling.
+- Re-sending the same sticker mints a new pack identifier, so it appears as a second tray section
+  rather than updating the first. Judged acceptable: users update packs, they rarely re-add a sticker.
 
 ## Sharing (Task 12 — decided 2026-08-06)
 

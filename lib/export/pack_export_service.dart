@@ -43,6 +43,28 @@ class PackExportService {
     await exporter.addPackToWhatsApp(pack, stickers);
   }
 
+  /// Discards a pack we only created in order to carry one sticker across.
+  ///
+  /// **The sticker survives.** `deletePack` clears the membership back-reference
+  /// and leaves the record and its file alone, which is what makes a throwaway
+  /// pack safe.
+  ///
+  /// **WhatsApp keeps its imported copy**, confirmed in real use: stickers added
+  /// this way persist even after the app is uninstalled and its data wiped. A
+  /// pack is a one-shot import, so removing ours does not reach into WhatsApp.
+  ///
+  /// Both halves are required. Unstaging alone leaves an orphan record; deleting
+  /// the record alone leaves the directory, and the provider enumerates packs
+  /// from the filesystem, so WhatsApp would still be offered a pack that counts
+  /// against the ten an app may publish.
+  ///
+  /// Call this only after an export has genuinely succeeded. WhatsApp reads the
+  /// bytes through the provider, so discarding early races an unfinished import.
+  Future<void> discard(PackRecord pack) async {
+    await stager.unstage(pack.id);
+    await store.deletePack(pack.id);
+  }
+
   /// Whether this pack has been staged before — i.e. the user is re-adding it.
   ///
   /// Drives the one caveat worth saying out loud: bumping `image_data_version`

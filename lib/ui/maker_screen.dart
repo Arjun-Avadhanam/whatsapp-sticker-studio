@@ -13,6 +13,7 @@ import '../sources/xlink_source.dart';
 import 'add_to_pack_sheet.dart';
 import 'export_pack_action.dart';
 import 'giphy_picker_screen.dart';
+import 'send_sticker_action.dart';
 import 'maker_controller.dart';
 import 'x_link_button.dart';
 
@@ -174,6 +175,25 @@ class _MakerScreenState extends State<MakerScreen> {
     );
   }
 
+  /// Sends the sticker to WhatsApp on its own, named after itself.
+  ///
+  /// Saves any half-typed name first, for the same reason add-to-pack does: the
+  /// name is what the wrapper pack will be called, so losing it here would send
+  /// a sticker to WhatsApp under the wrong name entirely.
+  Future<void> _sendToWhatsApp() async {
+    final sticker = _controller.lastSaved;
+    if (sticker == null) return;
+
+    await _controller.renameLastSaved(_name.text);
+    if (!mounted) return;
+
+    await sendStickerToWhatsApp(
+      context: context,
+      dependencies: widget.dependencies,
+      sticker: _controller.lastSaved ?? sticker,
+    );
+  }
+
   /// Offers to file the sticker that was just saved into a pack.
   ///
   /// Only a pack can be added to WhatsApp — a loose sticker cannot — so this is
@@ -265,6 +285,7 @@ class _MakerScreenState extends State<MakerScreen> {
             _TaggingStatusCard(
               controller: _controller,
               onAddToPack: _addToPack,
+              onSendToWhatsApp: _sendToWhatsApp,
               name: _name,
             ),
           ],
@@ -512,11 +533,16 @@ class _TaggingStatusCard extends StatelessWidget {
   const _TaggingStatusCard({
     required this.controller,
     required this.onAddToPack,
+    required this.onSendToWhatsApp,
     required this.name,
   });
 
   final MakerController controller;
   final VoidCallback onAddToPack;
+
+  /// Wraps the sticker in a pack of its own and sends that, which is the only
+  /// way its name becomes visible in WhatsApp.
+  final VoidCallback onSendToWhatsApp;
 
   /// Owned by the screen, not rebuilt here — a controller recreated on every
   /// rebuild would drop the user's half-typed name.
@@ -580,19 +606,32 @@ class _TaggingStatusCard extends StatelessWidget {
             const SizedBox(height: 8),
             detail,
             const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.centerRight,
-              // Offered whether or not tagging succeeded — the two are
-              // unrelated, and a sticker with no tags is still perfectly good
-              // in a pack.
-              child: TextButton.icon(
-                key: const Key('add-to-pack'),
-                onPressed: onAddToPack,
-                icon: const Icon(Icons.library_add_outlined),
-                label: Text(
-                  saved.packId == null ? 'Add to pack' : 'Move to another pack',
+            // Two ways out, and the order matters: sending one sticker is what
+            // most people want most of the time, so it leads.
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              children: [
+                TextButton.icon(
+                  key: const Key('send-to-whatsapp'),
+                  onPressed: onSendToWhatsApp,
+                  icon: const Icon(Icons.send_outlined),
+                  label: const Text('Send to WhatsApp'),
                 ),
-              ),
+                // Offered whether or not tagging succeeded — the two are
+                // unrelated, and a sticker with no tags is still perfectly good
+                // in a pack.
+                TextButton.icon(
+                  key: const Key('add-to-pack'),
+                  onPressed: onAddToPack,
+                  icon: const Icon(Icons.library_add_outlined),
+                  label: Text(
+                    saved.packId == null
+                        ? 'Add to pack'
+                        : 'Move to another pack',
+                  ),
+                ),
+              ],
             ),
           ],
         ),

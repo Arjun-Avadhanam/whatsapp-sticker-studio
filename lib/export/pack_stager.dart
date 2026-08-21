@@ -34,6 +34,22 @@ class PackStager {
     return Directory(p.join(root.path, _packsDirName, identifier));
   }
 
+  /// Removes a staged pack from disk, so the provider stops offering it.
+  ///
+  /// **Deleting the [PackRecord] alone is not enough.** `StickerContentProvider`
+  /// enumerates packs by listing the directories under `sticker_packs/`, not by
+  /// reading our database, so a pack whose record is gone but whose directory
+  /// remains is still advertised to WhatsApp and still counts against the ten
+  /// packs an app may offer.
+  ///
+  /// Safe to call when nothing is staged. Never call it before WhatsApp has
+  /// finished importing: it reads the sticker bytes through the provider, so
+  /// pulling the files early would take them out from under an in-flight read.
+  Future<void> unstage(String identifier) async {
+    final dir = await packDir(identifier);
+    if (dir.existsSync()) await dir.delete(recursive: true);
+  }
+
   /// Stages [pack] and returns the directory written.
   ///
   /// Re-staging an existing pack **bumps `image_data_version`**, which is the
